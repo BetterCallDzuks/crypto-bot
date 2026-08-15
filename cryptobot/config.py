@@ -367,11 +367,33 @@ def _section(data: dict[str, Any], key: str) -> dict[str, Any]:
     return value
 
 
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge ``override`` into ``base`` (override wins on scalars)."""
+    out = dict(base)
+    for key, value in override.items():
+        if (key in out and isinstance(out[key], dict)
+                and isinstance(value, dict)):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def local_config_path(config_path: str | os.PathLike[str]) -> Path:
+    """The git-ignored overlay path next to the given config file."""
+    return Path(config_path).with_name("config.local.yaml")
+
+
 def load_config(
     config_path: str | os.PathLike[str] = "config.yaml",
     env_path: str | os.PathLike[str] = ".env",
 ) -> Config:
-    """Load configuration from YAML + environment, validate, and return it."""
+    """Load configuration from YAML + environment, validate, and return it.
+
+    A git-ignored ``config.local.yaml`` next to ``config.yaml`` is overlaid on
+    top when present, so runtime changes (saved by the dashboard) never touch
+    the tracked ``config.yaml`` and never conflict with ``git pull``.
+    """
     load_dotenv(env_path)
 
     path = Path(config_path)
@@ -383,6 +405,12 @@ def load_config(
     raw = yaml.safe_load(path.read_text()) or {}
     if not isinstance(raw, dict):
         raise ValueError("config.yaml must contain a mapping at the top level")
+
+    local_path = local_config_path(config_path)
+    if local_path.exists():
+        local = yaml.safe_load(local_path.read_text()) or {}
+        if isinstance(local, dict):
+            raw = _deep_merge(raw, local)
 
     exchange = ExchangeConfig(
         **_section(raw, "exchange"),

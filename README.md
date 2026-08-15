@@ -200,8 +200,11 @@ one.
 
 All non-secret settings live in `config.yaml`; secrets live in `.env`.
 
-Most fields can also be changed live from the **Settings** tab (which writes
-them back to `config.yaml`). Symbols and quote currency need a restart.
+Most fields can also be changed live from the **Settings** tab. Those changes
+are written to a git-ignored **`config.local.yaml`** overlay (which wins over
+`config.yaml` for any field it sets), so the tracked `config.yaml` is never
+modified and `git pull` never conflicts with your live settings. Symbols and
+quote currency need a restart.
 
 | Section     | Key                     | Meaning                                                        |
 |-------------|-------------------------|----------------------------------------------------------------|
