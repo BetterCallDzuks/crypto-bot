@@ -69,6 +69,8 @@ backtest:
   # charged by the exchange. Values are fractions: 0.0004 = 0.04%.
   fee_rate: 0.0004        # taker fee per fill
   slippage_rate: 0.0005   # adverse price slippage per fill
+  funding_rate: 0.0001    # perpetual funding per interval (can be negative)
+  funding_interval_hours: 8
 
 web:
   # 127.0.0.1 = localhost only (use an SSH tunnel or Tailscale to reach it
