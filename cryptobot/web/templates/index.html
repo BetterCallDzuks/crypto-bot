@@ -32,6 +32,8 @@
       border-color: var(--accent); }
     .badge.quote { background: rgba(163,113,247,.14); color: var(--violet);
       border-color: var(--violet); }
+    .badge.strat { background: rgba(210,153,34,.10); color: var(--warn);
+      border-color: var(--warn); }
     .badge.halted { background: rgba(210,153,34,.15); color: var(--warn);
       border-color: var(--warn); }
     button { background: var(--panel2); color: var(--text);
@@ -257,6 +259,7 @@ function render(s) {
   badges.push(s.futures ? `<span class="badge lev">FUTURES ${s.leverage}x</span>`
                         : `<span class="badge">SPOT</span>`);
   badges.push(`<span class="badge quote">${QUOTE}</span>`);
+  if (s.strategy) badges.push(`<span class="badge strat">${s.strategy}</span>`);
   badges.push(`<span class="badge">${s.num_symbols} pairs · ${s.open_positions} open</span>`);
   if (s.trading_halted) badges.push(`<span class="badge halted">DAILY LOSS LIMIT — entries halted</span>`);
   document.getElementById("badges").innerHTML = badges.join("");
@@ -382,8 +385,6 @@ const FIELDS = [
   ["futures", "leverage", "Leverage", "number", "e.g. 5 for 5x"],
   ["futures", "margin_mode", "Margin mode", "select", "", ["isolated", "cross"]],
   ["futures", "allow_short", "Allow shorts", "checkbox", "Flip short on bearish crossover"],
-  ["strategy", "fast_period", "Fast MA period", "number", ""],
-  ["strategy", "slow_period", "Slow MA period", "number", "Must exceed fast period"],
   ["risk", "position_size_pct", "Position size", "number", "Fraction of balance (0–1)"],
   ["risk", "stop_loss_pct", "Stop loss", "number", "Fraction, e.g. 0.02 = 2%"],
   ["risk", "take_profit_pct", "Take profit", "number", "Fraction, e.g. 0.04 = 4%"],
@@ -392,10 +393,24 @@ const FIELDS = [
   ["market", "quote_currency", "Quote currency", "text", "USDC or BNFCR · needs restart"],
   ["market", "symbols", "Symbols (comma-sep)", "text", "e.g. BTC,ETH,SOL · needs restart"],
 ];
+let STRATS = {}, CUR_STRAT = { name: "", params: {} };
 async function loadSettings() {
   const cfg = await (await fetch("/api/config")).json();
+  STRATS = cfg._strategies || {};
+  CUR_STRAT = cfg.strategy || { name: "", params: {} };
   const form = document.getElementById("settingsForm");
-  form.innerHTML = FIELDS.map(([sec, key, label, type, hint, choices]) => {
+
+  const options = Object.entries(STRATS).map(([k, s]) =>
+    `<option value="${k}" ${k === CUR_STRAT.name ? "selected" : ""}>${s.label}</option>`).join("");
+  const stratBlock = `<div class="field" style="grid-column:1/-1">
+      <label for="strategySelect">Strategy</label>
+      <select id="strategySelect" onchange="renderStratParams(this.value)">${options}</select>
+      <span class="hint" id="stratDesc"></span>
+      <div class="grid" id="strategyParams"
+        style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); margin-top:8px"></div>
+    </div>`;
+
+  form.innerHTML = stratBlock + FIELDS.map(([sec, key, label, type, hint, choices]) => {
     const val = cfg[sec][key];
     const id = `set-${sec}-${key}`;
     if (type === "checkbox")
@@ -412,8 +427,25 @@ async function loadSettings() {
         ${type === "checkbox" ? "" : ""}>
       ${hint ? `<span class="hint">${hint}</span>` : ""}</div>`;
   }).join("");
+  renderStratParams(CUR_STRAT.name);
   document.getElementById("saveMsg").textContent = "";
   onDryChange();
+}
+function renderStratParams(name) {
+  const spec = STRATS[name];
+  if (!spec) return;
+  document.getElementById("stratDesc").textContent = "— " + spec.description;
+  // Prefill with the saved params when the selected strategy is the active one.
+  const cur = name === CUR_STRAT.name ? CUR_STRAT.params : {};
+  const box = document.getElementById("strategyParams");
+  const keys = Object.keys(spec.params);
+  box.innerHTML = keys.length
+    ? keys.map(k => {
+        const v = cur[k] ?? spec.params[k];
+        return `<div class="field"><label for="sp-${k}">${k}</label>
+          <input type="number" id="sp-${k}" value="${v}" step="any"></div>`;
+      }).join("")
+    : `<span class="hint">No parameters.</span>`;
 }
 function onDryChange() {
   const dry = document.getElementById("set-trading-dry_run");
@@ -427,6 +459,15 @@ async function saveSettings() {
     (updates[sec] = updates[sec] || {});
     updates[sec][key] = type === "checkbox" ? el.checked : el.value;
   }
+  // Strategy: selected name + its parameter inputs.
+  const stratName = document.getElementById("strategySelect").value;
+  const params = {};
+  for (const k of Object.keys(STRATS[stratName].params)) {
+    const el = document.getElementById(`sp-${k}`);
+    if (el) params[k] = el.value;
+  }
+  updates.strategy = { name: stratName, params };
+
   const msg = document.getElementById("saveMsg");
   msg.textContent = "Saving…"; msg.className = "";
   try {

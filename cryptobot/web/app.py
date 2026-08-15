@@ -93,10 +93,12 @@ def create_app(config: Config, state: PortfolioState,
 
     @app.route("/api/config", methods=["GET"])
     def api_config_get():
+        from ..strategy import available_strategies
         payload = config.editable_settings()
         payload["_restart_required"] = ["market.symbols", "market.quote_currency"]
         payload["_has_api_keys"] = bool(config.exchange.api_key
                                         and config.exchange.api_secret)
+        payload["_strategies"] = available_strategies()
         return jsonify(payload)
 
     @app.route("/api/config", methods=["POST"])

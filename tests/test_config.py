@@ -31,9 +31,37 @@ def test_live_trading_with_keys_ok():
 
 
 def test_fast_must_be_below_slow():
-    cfg = Config(strategy=StrategyConfig(fast_period=21, slow_period=9))
+    cfg = Config(strategy=StrategyConfig(
+        name="sma_crossover", params={"fast_period": 21, "slow_period": 9}))
     with pytest.raises(ValueError):
         cfg.validate()
+
+
+def test_unknown_strategy_rejected():
+    cfg = Config(strategy=StrategyConfig(name="crystal_ball"))
+    with pytest.raises(ValueError, match="Unknown strategy"):
+        cfg.validate()
+
+
+def test_strategy_update_and_param_coercion():
+    cfg = Config()
+    cfg.apply_updates({"strategy": {"name": "rsi",
+                                    "params": {"period": "10",
+                                               "oversold": "25",
+                                               "overbought": "75"}}})
+    assert cfg.strategy.name == "rsi"
+    assert cfg.strategy.params == {"period": 10, "oversold": 25, "overbought": 75}
+
+
+def test_invalid_strategy_params_roll_back():
+    cfg = Config()
+    before = (cfg.strategy.name, dict(cfg.strategy.params))
+    with pytest.raises(ValueError):
+        # oversold >= overbought is invalid
+        cfg.apply_updates({"strategy": {"name": "rsi",
+                                        "params": {"oversold": "80",
+                                                   "overbought": "70"}}})
+    assert (cfg.strategy.name, cfg.strategy.params) == before
 
 
 def test_simulated_source_cannot_be_live():

@@ -55,9 +55,19 @@ class TradingConfig:
 
 @dataclass
 class StrategyConfig:
-    name: str = "sma_crossover"
-    fast_period: int = 9
-    slow_period: int = 21
+    # Strategy key from cryptobot.strategy.REGISTRY (e.g. confluence,
+    # ema_crossover, macd, rsi, bollinger, donchian, sma_crossover).
+    name: str = "confluence"
+    # Strategy-specific parameters; missing keys fall back to the strategy's
+    # own defaults.
+    params: dict = field(default_factory=dict)
+
+    def effective_params(self) -> dict:
+        """Stored params merged over the strategy's declared defaults."""
+        from .strategy import REGISTRY
+        defaults = REGISTRY[self.name].default_params if self.name in REGISTRY \
+            else {}
+        return {**defaults, **self.params}
 
 
 @dataclass
@@ -137,13 +147,17 @@ class Config:
     # -- validation --------------------------------------------------------
     def validate(self) -> None:
         """Fail fast on nonsensical or unsafe configuration."""
-        s = self.strategy
-        if s.fast_period < 1 or s.slow_period < 1:
-            raise ValueError("strategy periods must be >= 1")
-        if s.fast_period >= s.slow_period:
+        # Building the strategy validates its name and parameters.
+        from .strategy import REGISTRY, build_strategy
+        if self.strategy.name not in REGISTRY:
             raise ValueError(
-                "strategy.fast_period must be smaller than strategy.slow_period"
+                f"Unknown strategy '{self.strategy.name}'. "
+                f"Available: {sorted(REGISTRY)}"
             )
+        try:
+            build_strategy(self.strategy.name, self.strategy.params)
+        except ValueError as exc:
+            raise ValueError(f"Invalid strategy parameters: {exc}") from exc
 
         r = self.risk
         for name in ("position_size_pct", "stop_loss_pct",
@@ -216,8 +230,8 @@ class Config:
                 "poll_interval": self.trading.poll_interval,
             },
             "strategy": {
-                "fast_period": self.strategy.fast_period,
-                "slow_period": self.strategy.slow_period,
+                "name": self.strategy.name,
+                "params": self.strategy.effective_params(),
             },
             "risk": {
                 "position_size_pct": self.risk.position_size_pct,
@@ -243,16 +257,20 @@ class Config:
         allowed = self.editable_settings()
         targets = {
             "market": self.market, "trading": self.trading,
-            "strategy": self.strategy, "risk": self.risk, "futures": self.futures,
+            "risk": self.risk, "futures": self.futures,
         }
-        # Work on a snapshot so a failed validate() doesn't half-apply.
+        # Snapshot everything we might touch so a failed validate() rolls back.
+        strat_before = (self.strategy.name, dict(self.strategy.params))
         staged: list[tuple[Any, str, Any]] = []
         for section, fields in updates.items():
-            if section not in allowed or not isinstance(fields, dict):
+            if section == "strategy" and isinstance(fields, dict):
+                self._stage_strategy(fields)
+                continue
+            if section not in targets or not isinstance(fields, dict):
                 continue
             target = targets[section]
             for key, new_value in fields.items():
-                if key not in allowed[section]:
+                if key not in allowed.get(section, {}):
                     continue
                 current = getattr(target, key)
                 staged.append((target, key, _coerce(current, new_value)))
@@ -263,9 +281,39 @@ class Config:
         try:
             self.validate()
         except Exception:
-            for target, key, value in originals:  # roll back
+            for target, key, value in originals:  # roll back scalars
                 setattr(target, key, value)
+            self.strategy.name, self.strategy.params = strat_before  # and strategy
             raise
+
+    def _stage_strategy(self, fields: dict[str, Any]) -> None:
+        """Apply strategy name/params (params coerced to numbers)."""
+        if "name" in fields:
+            self.strategy.name = str(fields["name"])
+        if "params" in fields and isinstance(fields["params"], dict):
+            self.strategy.params = {
+                k: _coerce_number(v) for k, v in fields["params"].items()
+            }
+
+
+def _coerce_number(value: Any) -> Any:
+    """Best-effort coerce a value to int or float (leave non-numeric as-is)."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            if any(c in text for c in ".eE"):
+                return float(text)
+            return int(text)
+        except ValueError:
+            try:
+                return float(text)
+            except ValueError:
+                return value
+    return value
 
 
 def _coerce(current: Any, new_value: Any) -> Any:
@@ -322,7 +370,7 @@ def load_config(
         exchange=exchange,
         market=MarketConfig(**_section(raw, "market")),
         trading=TradingConfig(**_section(raw, "trading")),
-        strategy=StrategyConfig(**_section(raw, "strategy")),
+        strategy=_parse_strategy(_section(raw, "strategy")),
         risk=RiskConfig(**_section(raw, "risk")),
         futures=FuturesConfig(**_section(raw, "futures")),
         web=WebConfig(**_section(raw, "web")),
@@ -330,6 +378,21 @@ def load_config(
     )
     cfg.validate()
     return cfg
+
+
+# Legacy top-level strategy params (pre-`params` schema) folded into params.
+_LEGACY_STRATEGY_KEYS = ("fast_period", "slow_period", "signal_period",
+                         "period", "oversold", "overbought", "num_std",
+                         "threshold")
+
+
+def _parse_strategy(raw: dict[str, Any]) -> StrategyConfig:
+    name = raw.get("name", "confluence")
+    params = dict(raw.get("params") or {})
+    for key in _LEGACY_STRATEGY_KEYS:
+        if key in raw:
+            params.setdefault(key, raw[key])
+    return StrategyConfig(name=name, params=params)
 
 
 def _load_auth_from_env() -> AuthConfig:

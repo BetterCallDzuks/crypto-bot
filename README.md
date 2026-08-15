@@ -4,10 +4,11 @@ A safety-first, **multi-symbol** crypto **futures** trading bot with a full web
 dashboard.
 
 It trades a basket of large-cap assets (BTC, ETH, XRP, SOL, DOGE, BNB, ADA …)
-at once, each independently, on leveraged perpetual futures — going **long** on
-bullish crossovers and flipping **short** on bearish ones. Positions are
-managed with real risk controls: leverage-aware sizing, stop-loss, take-profit,
-a liquidation backstop, and a portfolio-wide daily-loss kill switch.
+at once, each independently, on leveraged perpetual futures — going **long** and
+flipping **short** on the signals of a selectable trading strategy. Positions
+are managed with real risk controls: leverage-aware sizing, stop-loss,
+take-profit, a liquidation backstop, and a portfolio-wide daily-loss kill
+switch.
 
 Built for **Croatia/EEA**, where USDT isn't available: the quote/margin
 currency is **USDC** (or **BNFCR**), not USDT.
@@ -56,8 +57,8 @@ that position's collateral — it can't drain the rest of your balance). Higher
 leverage means a smaller move liquidates you. The stop-loss is set to trigger
 well before liquidation, but gaps and slippage are real. Start at low leverage.
 
-No strategy is guaranteed to be profitable. The included SMA crossover is a
-simple, well-known baseline — treat it as a starting point, not financial
+No strategy is guaranteed to be profitable. The included strategies are
+well-known building blocks — treat them as a starting point, not financial
 advice. Never risk money you can't afford to lose.
 
 ---
@@ -100,10 +101,34 @@ proxy) — see **[DEPLOY.md](DEPLOY.md)**.
 ./.venv/bin/pytest
 ```
 
-The suite (41 tests) covers the strategy, side-aware risk and liquidation,
-config validation + live settings updates, multi-symbol portfolio accounting,
-and full engine round-trips (long/short flips, stop-loss, liquidation) using a
-fake exchange — so it runs without any network access.
+The suite (67 tests) covers every strategy and its indicators, side-aware risk
+and liquidation, config validation + live settings updates, multi-symbol
+portfolio accounting, and full engine round-trips (long/short flips, stop-loss,
+liquidation) using a fake exchange — so it runs without any network access.
+
+---
+
+## Strategies
+
+Pick one in `config.yaml` (`strategy.name`) or from the **Settings** tab, where
+each strategy exposes its own parameters. All operate on close prices and emit
+buy / sell / hold signals; the engine turns those into long/short entries and
+exits under the risk rules.
+
+| Key             | Type          | Idea                                                        |
+|-----------------|---------------|-------------------------------------------------------------|
+| `confluence`    | Ensemble      | Trades only when several strategies (EMA, MACD, RSI) agree — the most robust default. `threshold` = how many must agree (1–3). |
+| `ema_crossover` | Trend         | Fast/slow exponential moving-average crossover; reacts faster than SMA. |
+| `sma_crossover` | Trend         | Fast/slow simple moving-average crossover; the classic baseline. |
+| `macd`          | Momentum      | MACD line crossing its signal line. |
+| `rsi`           | Mean reversion| Enter as RSI leaves oversold / overbought. |
+| `bollinger`     | Mean reversion| Buy/sell as price re-enters the Bollinger bands. |
+| `donchian`      | Breakout      | Break of the N-bar high/low (Turtle-style trend capture). |
+
+There is no "best" strategy that always wins — market regimes change. The
+**confluence** ensemble is the default because requiring agreement filters out
+many false signals, at the cost of trading less often. Backtest and paper-trade
+any choice before committing real funds.
 
 ---
 
@@ -175,7 +200,7 @@ ecosystem.config.js     PM2 process definition
 setup.sh                One-time venv + deps + .env bootstrap
 cryptobot/
   config.py             Typed config; validation, live updates, persistence
-  strategy.py           Pure SMA-crossover strategy (pluggable via factory)
+  strategy.py           Strategy library + indicators (registry & factory)
   risk.py               Leverage sizing, side-aware exits, liquidation, limits
   state.py              Multi-symbol portfolio: positions, P&L, charts data
   exchange.py           Multi-symbol ccxt wrapper; futures + dry-run order gate

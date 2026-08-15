@@ -28,7 +28,7 @@ from .risk import (
     should_take_profit,
 )
 from .state import PortfolioState
-from .strategy import Signal, build_strategy
+from .strategy import REGISTRY, Signal, build_strategy
 
 log = logging.getLogger("cryptobot.trader")
 
@@ -54,11 +54,7 @@ class TradingEngine:
         """
         c = self.config
         with self._settings_lock:
-            self.strategy = build_strategy(
-                c.strategy.name,
-                fast_period=c.strategy.fast_period,
-                slow_period=c.strategy.slow_period,
-            )
+            self.strategy = build_strategy(c.strategy.name, c.strategy.params)
             self.limits = RiskLimits(
                 position_size_pct=c.risk.position_size_pct,
                 stop_loss_pct=c.risk.stop_loss_pct,
@@ -68,9 +64,12 @@ class TradingEngine:
             self.futures = c.futures.enabled
             self.allow_short = c.futures.enabled and c.futures.allow_short
             self.leverage = c.futures.leverage if c.futures.enabled else 1
-        log.info("Settings (re)loaded: %s, %dx leverage, size %.0f%%, "
+        label = REGISTRY[c.strategy.name].label if c.strategy.name in REGISTRY \
+            else c.strategy.name
+        self.state.set_strategy(label)
+        log.info("Settings (re)loaded: strategy=%s, %dx leverage, size %.0f%%, "
                  "stop %.1f%% / tp %.1f%%",
-                 self.strategy.__class__.__name__, self.leverage,
+                 label, self.leverage,
                  self.limits.position_size_pct * 100,
                  self.limits.stop_loss_pct * 100, self.limits.take_profit_pct * 100)
 
