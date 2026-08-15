@@ -85,7 +85,13 @@ def create_app(config: Config, state: PortfolioState,
     # -- dashboard + API ---------------------------------------------------
     @app.route("/")
     def index():
-        return render_template("index.html", auth_active=config.auth_active)
+        return render_template("index.html", auth_active=config.auth_active,
+                               timezone=config.web.timezone)
+
+    @app.route("/api/meta")
+    def api_meta():
+        # Small, cheap endpoint so display prefs (e.g. timezone) update live.
+        return jsonify({"timezone": config.web.timezone})
 
     @app.route("/api/state")
     def api_state():
