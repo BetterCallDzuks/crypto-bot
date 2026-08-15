@@ -128,4 +128,38 @@ def create_app(config: Config, state: PortfolioState,
             engine.stop()
         return jsonify({"ok": True, "status": state.snapshot()["status"]})
 
+    # -- backtesting -------------------------------------------------------
+    @app.route("/api/backtest", methods=["POST"])
+    def api_backtest():
+        import copy as _copy
+
+        from ..backtest import load_history, run_backtest
+        body = request.get_json(silent=True) or {}
+        bars = max(200, min(int(body.get("bars", 1500)), 5000))
+        cfg = _copy.deepcopy(config)
+        if body.get("strategy"):
+            cfg.strategy.name = str(body["strategy"])
+            cfg.strategy.params = {}
+        try:
+            cfg.validate()
+            history = load_history(cfg, bars)
+            result = run_backtest(cfg, history)
+        except Exception as exc:  # noqa: BLE001 - reported to the client
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "result": result,
+                        "source": cfg.market.source})
+
+    @app.route("/api/backtest/compare", methods=["POST"])
+    def api_backtest_compare():
+        from ..backtest import compare_strategies, load_history
+        body = request.get_json(silent=True) or {}
+        bars = max(200, min(int(body.get("bars", 1500)), 5000))
+        try:
+            history = load_history(config, bars)
+            results = compare_strategies(config, history)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "results": results,
+                        "source": config.market.source})
+
     return app

@@ -87,7 +87,8 @@ class PortfolioState:
     def __init__(self, bases: list[str], symbols: Dict[str, str],
                  starting_balance: float, quote_currency: str = "USDC",
                  dry_run: bool = True, futures: bool = False,
-                 leverage: int = 1) -> None:
+                 leverage: int = 1, trades_maxlen: int = 300,
+                 equity_maxlen: int = 500) -> None:
         self._lock = threading.Lock()
         self.quote_currency = quote_currency
         self.dry_run = dry_run
@@ -101,10 +102,12 @@ class PortfolioState:
             base: SymbolState(base, symbols[base]) for base in bases
         }
 
-        self.trades: Deque[Trade] = deque(maxlen=300)   # recent, all symbols
+        # Larger buffers are used for backtests, which replay far more bars and
+        # trades than a live session keeps on screen.
+        self.trades: Deque[Trade] = deque(maxlen=trades_maxlen)
         self.realized_pnl = 0.0
         self.daily_pnl: Dict[str, float] = {}           # date -> realized P&L
-        self.equity_curve: Deque[tuple[str, float]] = deque(maxlen=500)
+        self.equity_curve: Deque[tuple[str, float]] = deque(maxlen=equity_maxlen)
 
         self.trading_halted = False
         self.strategy_name = ""

@@ -108,6 +108,7 @@
     <button class="active" data-tab="overview" onclick="showTab('overview')">Overview</button>
     <button data-tab="pairs" onclick="showTab('pairs')">Pairs</button>
     <button data-tab="analytics" onclick="showTab('analytics')">Analytics</button>
+    <button data-tab="backtest" onclick="showTab('backtest'); initBacktest()">Backtest</button>
     <button data-tab="settings" onclick="showTab('settings'); loadSettings()">Settings</button>
   </nav>
 
@@ -151,6 +152,39 @@
       <div style="overflow-x:auto"><table>
         <thead><tr><th>Date</th><th>P&amp;L</th></tr></thead>
         <tbody id="dailyTable"><tr><td colspan="2" class="sub">No data yet.</td></tr></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <!-- BACKTEST -->
+  <div id="tab-backtest" class="hidden">
+    <section class="card">
+      <div class="panel-title">Backtest a strategy</div>
+      <div class="sub">Replays historical candles through the live engine
+        (same sizing, stops, leverage). Data source: <b id="btSource">…</b>.
+        Ignores fees/funding/slippage; past results don't predict the future.</div>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:14px">
+        <div class="field"><label for="btStrategy">Strategy</label>
+          <select id="btStrategy"></select></div>
+        <div class="field"><label for="btBars">Bars (history length)</label>
+          <input type="number" id="btBars" value="1500" min="200" max="5000" step="100"></div>
+        <button class="primary" onclick="runBacktest()">Run backtest</button>
+        <button onclick="compareBacktest()">Compare all strategies</button>
+        <span id="btMsg" class="sub"></span>
+      </div>
+    </section>
+    <section class="card hidden" id="btResultCard">
+      <div class="panel-title">Result — <span id="btResultName"></span></div>
+      <div class="grid stats" id="btMetrics" style="margin-bottom:14px"></div>
+      <div class="panel-title" style="font-size:13px">Equity curve</div>
+      <svg class="bigchart" id="btEquity"></svg>
+    </section>
+    <section class="card hidden" id="btCompareCard">
+      <div class="panel-title">Strategy comparison (ranked by return)</div>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Strategy</th><th>Return</th><th>Max DD</th>
+          <th>Win rate</th><th>Trades</th><th>Profit factor</th><th>Sharpe</th></tr></thead>
+        <tbody id="btCompareBody"></tbody>
       </table></div>
     </section>
   </div>
@@ -230,7 +264,7 @@ function getVar(name) {
 let activeTab = "overview";
 function showTab(name) {
   activeTab = name;
-  ["overview", "pairs", "analytics", "settings"].forEach(t =>
+  ["overview", "pairs", "analytics", "backtest", "settings"].forEach(t =>
     document.getElementById("tab-" + t).classList.toggle("hidden", t !== name));
   document.querySelectorAll("nav button").forEach(b =>
     b.classList.toggle("active", b.dataset.tab === name));
@@ -478,6 +512,83 @@ async function saveSettings() {
     if (data.ok) { msg.textContent = "Saved ✓"; msg.className = "msg-ok"; refresh(); }
     else { msg.textContent = "Error: " + data.error; msg.className = "msg-err"; }
   } catch (e) { msg.textContent = "Request failed"; msg.className = "msg-err"; }
+}
+
+// ---- backtest -------------------------------------------------------------
+async function ensureStrategies() {
+  if (Object.keys(STRATS).length) return;
+  const cfg = await (await fetch("/api/config")).json();
+  STRATS = cfg._strategies || {};
+  CUR_STRAT = cfg.strategy || CUR_STRAT;
+}
+async function initBacktest() {
+  await ensureStrategies();
+  const sel = document.getElementById("btStrategy");
+  if (!sel.options.length) {
+    sel.innerHTML = Object.entries(STRATS).map(([k, s]) =>
+      `<option value="${k}" ${k === CUR_STRAT.name ? "selected" : ""}>${s.label}</option>`).join("");
+  }
+  // The data source (simulated / exchange) is reported by the run itself.
+  const src = document.getElementById("btSource");
+  if (src.textContent === "…") src.textContent = "run to load";
+}
+const pf = v => v == null ? "∞" : fmt(v, 2);
+async function runBacktest() {
+  const strategy = document.getElementById("btStrategy").value;
+  const bars = document.getElementById("btBars").value;
+  const msg = document.getElementById("btMsg");
+  msg.textContent = "Running backtest…";
+  try {
+    const r = await fetch("/api/backtest", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ strategy, bars: Number(bars) }) });
+    const data = await r.json();
+    if (!data.ok) { msg.textContent = "Error: " + data.error; return; }
+    msg.textContent = ""; document.getElementById("btSource").textContent = data.source;
+    renderBacktest(data.result);
+  } catch (e) { msg.textContent = "Request failed"; }
+}
+function renderBacktest(m) {
+  document.getElementById("btResultCard").classList.remove("hidden");
+  document.getElementById("btResultName").textContent =
+    `${STRATS[m.strategy] ? STRATS[m.strategy].label : m.strategy} · ${m.bars} bars · ${m.leverage}x`;
+  const cards = [
+    ["Total return", `${sign(m.total_return_pct)}%`, cls(m.total_return_pct)],
+    ["Max drawdown", `${fmt(m.max_drawdown_pct)}%`, "down"],
+    ["Win rate", `${fmt(m.win_rate_pct, 1)}%`, m.win_rate_pct >= 50 ? "up" : ""],
+    ["Profit factor", pf(m.profit_factor), m.profit_factor >= 1 ? "up" : "down"],
+    ["Trades", `${m.trades}`, ""],
+    ["Sharpe (annved)", fmt(m.sharpe, 2), cls(m.sharpe)],
+    ["Best trade", `${sign(m.best_trade)}`, "up"],
+    ["Worst trade", `${sign(m.worst_trade)}`, "down"],
+  ];
+  document.getElementById("btMetrics").innerHTML = cards.map(([l, v, c]) =>
+    `<div class="card"><div class="label">${l}</div><div class="value ${c}">${v}</div></div>`).join("");
+  lineChart(document.getElementById("btEquity"), m.equity_curve, { area: true, autoColor: true, width: 2 });
+}
+async function compareBacktest() {
+  const bars = document.getElementById("btBars").value;
+  const msg = document.getElementById("btMsg");
+  msg.textContent = "Comparing all strategies… (this can take a few seconds)";
+  try {
+    const r = await fetch("/api/backtest/compare", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bars: Number(bars) }) });
+    const data = await r.json();
+    if (!data.ok) { msg.textContent = "Error: " + data.error; return; }
+    msg.textContent = ""; document.getElementById("btSource").textContent = data.source;
+    document.getElementById("btCompareCard").classList.remove("hidden");
+    document.getElementById("btCompareBody").innerHTML = data.results.map((m, i) => `
+      <tr>
+        <td>${i === 0 ? "🥇 " : ""}${m.label}</td>
+        <td class="${cls(m.total_return_pct)}">${sign(m.total_return_pct)}%</td>
+        <td class="down">${fmt(m.max_drawdown_pct)}%</td>
+        <td>${fmt(m.win_rate_pct, 1)}%</td>
+        <td>${m.trades}</td>
+        <td class="${m.profit_factor >= 1 ? "up" : "down"}">${pf(m.profit_factor)}</td>
+        <td class="${cls(m.sharpe)}">${fmt(m.sharpe, 2)}</td>
+      </tr>`).join("");
+  } catch (e) { msg.textContent = "Request failed"; }
 }
 
 async function stopBot() {
