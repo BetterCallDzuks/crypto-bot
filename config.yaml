@@ -1,0 +1,53 @@
+# ============================================================================
+# crypto-bot configuration
+# ----------------------------------------------------------------------------
+# SAFETY: `dry_run: true` means NO real orders are ever sent — trades are
+# simulated locally against live market prices (paper trading). Live trading
+# is only enabled when you BOTH set `dry_run: false` AND provide valid API
+# keys via the .env file. Read the README before going live.
+# ============================================================================
+
+exchange:
+  # Any exchange id supported by ccxt (e.g. binance, coinbase, kraken, bybit).
+  id: binance
+  # Use the exchange's sandbox/testnet endpoints when available. Strongly
+  # recommended while you validate your setup, even with dry_run off.
+  sandbox: true
+
+market:
+  # "simulated" runs an offline random-walk market — no network or API keys
+  # needed, great for trying the bot and watching the dashboard. Switch to
+  # "exchange" to use real ccxt market data from the exchange above.
+  source: simulated
+  symbol: BTC/USDT      # trading pair
+  timeframe: 1m         # candle size used by the strategy
+  quote_currency: USDT  # currency your balance / P&L is measured in
+
+trading:
+  # Master safety switch. Keep true until you have tested thoroughly.
+  dry_run: true
+  # Seconds between strategy evaluations (one poll of the market per loop).
+  poll_interval: 30
+  # Starting balance used for the simulated portfolio in dry_run mode.
+  paper_starting_balance: 10000.0
+
+strategy:
+  # Built-in strategy: simple moving-average crossover.
+  name: sma_crossover
+  fast_period: 9
+  slow_period: 21
+
+risk:
+  # Fraction of available quote balance to deploy per position (0.25 = 25%).
+  position_size_pct: 0.25
+  # Sell if price falls this fraction below entry (0.02 = 2% stop-loss).
+  stop_loss_pct: 0.02
+  # Sell if price rises this fraction above entry (0.04 = 4% take-profit).
+  take_profit_pct: 0.04
+  # Halt all new entries once cumulative loss for the day hits this fraction
+  # of starting equity (0.05 = 5%). A core capital-preservation guardrail.
+  max_daily_loss_pct: 0.05
+
+web:
+  host: 127.0.0.1
+  port: 5000

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>crypto-bot dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1419; --panel: #1a2029; --border: #2a3340;
+      --text: #e6edf3; --muted: #8b98a5; --accent: #58a6ff;
+      --up: #3fb950; --down: #f85149; --warn: #d29922;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI",
+        Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg); color: var(--text); padding: 24px;
+    }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub { color: var(--muted); margin-bottom: 20px; }
+    .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+    .badge {
+      padding: 4px 10px; border-radius: 999px; font-size: 12px;
+      font-weight: 600; border: 1px solid var(--border);
+    }
+    .badge.live { background: rgba(248,81,73,.15); color: var(--down);
+      border-color: var(--down); }
+    .badge.paper { background: rgba(63,185,80,.12); color: var(--up);
+      border-color: var(--up); }
+    .badge.halted { background: rgba(210,153,34,.15); color: var(--warn);
+      border-color: var(--warn); }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px; margin-bottom: 24px;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px;
+    }
+    .card .label { color: var(--muted); font-size: 12px;
+      text-transform: uppercase; letter-spacing: .04em; }
+    .card .value { font-size: 22px; font-weight: 700; margin-top: 6px;
+      font-variant-numeric: tabular-nums; }
+    .up { color: var(--up); } .down { color: var(--down); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid
+      var(--border); font-variant-numeric: tabular-nums; }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px;
+      text-transform: uppercase; }
+    .side-buy { color: var(--up); font-weight: 600; }
+    .side-sell { color: var(--down); font-weight: 600; }
+    .panel-title { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+    .row { display: flex; justify-content: space-between; align-items: center; }
+    button {
+      background: var(--down); color: #fff; border: none; border-radius: 8px;
+      padding: 8px 14px; font-weight: 600; cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: default; }
+    .foot { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <div>
+      <h1>crypto-bot</h1>
+      <div class="sub" id="market">—</div>
+    </div>
+    <button id="stopBtn" onclick="stopBot()">Stop bot</button>
+  </div>
+
+  <div class="badges" id="badges"></div>
+
+  <div class="grid" id="stats"></div>
+
+  <div class="card" style="margin-bottom:24px">
+    <div class="panel-title">Open position</div>
+    <div id="position" class="sub">No open position.</div>
+  </div>
+
+  <div class="card">
+    <div class="panel-title">Recent trades</div>
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Side</th><th>Qty</th><th>Price</th>
+          <th>Reason</th><th>P&amp;L</th></tr>
+      </thead>
+      <tbody id="trades">
+        <tr><td colspan="6" class="sub">No trades yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot" id="foot"></div>
+
+  <script>
+    const fmt = (n, d = 2) => (n ?? 0).toLocaleString(undefined,
+      { minimumFractionDigits: d, maximumFractionDigits: d });
+    const cls = n => n > 0 ? "up" : n < 0 ? "down" : "";
+    const sign = n => (n > 0 ? "+" : "") + fmt(n);
+
+    async function refresh() {
+      let s;
+      try {
+        s = await (await fetch("/api/state")).json();
+      } catch (e) {
+        document.getElementById("foot").textContent = "Connection lost…";
+        return;
+      }
+      const q = s.quote_currency;
+      document.getElementById("market").textContent =
+        `${s.status}`;
+
+      // badges
+      const badges = [];
+      badges.push(s.dry_run
+        ? `<span class="badge paper">PAPER (dry-run)</span>`
+        : `<span class="badge live">LIVE TRADING</span>`);
+      if (s.trading_halted)
+        badges.push(`<span class="badge halted">DAILY LOSS LIMIT — entries halted</span>`);
+      document.getElementById("badges").innerHTML = badges.join("");
+
+      // stat cards
+      const cards = [
+        ["Last price", `${fmt(s.last_price)} ${q}`, ""],
+        ["Equity", `${fmt(s.equity)} ${q}`, ""],
+        ["Cash balance", `${fmt(s.quote_balance)} ${q}`, ""],
+        ["Realized P&L", `${sign(s.realized_pnl)} ${q}`, cls(s.realized_pnl)],
+        ["Total P&L", `${sign(s.total_pnl)} ${q}`, cls(s.total_pnl)],
+        ["Return", `${sign(s.total_return_pct)}%`, cls(s.total_pnl)],
+      ];
+      document.getElementById("stats").innerHTML = cards.map(
+        ([l, v, c]) => `<div class="card"><div class="label">${l}</div>
+          <div class="value ${c}">${v}</div></div>`).join("");
+
+      // position
+      const posEl = document.getElementById("position");
+      if (s.position) {
+        const p = s.position;
+        posEl.innerHTML =
+          `<b>${fmt(p.quantity, 6)}</b> @ entry <b>${fmt(p.entry_price)}</b> ${q}
+           · value ${fmt(p.value)} ${q}
+           · unrealized <span class="${cls(p.unrealized_pnl)}">
+           ${sign(p.unrealized_pnl)} ${q}</span>
+           <span class="sub">(opened ${p.opened_at})</span>`;
+      } else {
+        posEl.innerHTML = `<span class="sub">No open position.</span>`;
+      }
+
+      // trades
+      const tb = document.getElementById("trades");
+      if (s.trades && s.trades.length) {
+        tb.innerHTML = s.trades.map(t => `
+          <tr>
+            <td>${t.timestamp.replace("T", " ")}</td>
+            <td class="side-${t.side}">${t.side.toUpperCase()}</td>
+            <td>${fmt(t.quantity, 6)}</td>
+            <td>${fmt(t.price)}</td>
+            <td>${t.reason}</td>
+            <td class="${cls(t.pnl)}">${t.side === "sell" ? sign(t.pnl) : "—"}</td>
+          </tr>`).join("");
+      } else {
+        tb.innerHTML = `<tr><td colspan="6" class="sub">No trades yet.</td></tr>`;
+      }
+
+      const stopped = s.status === "stopped";
+      document.getElementById("stopBtn").disabled = stopped;
+      let foot = `Updated ${s.last_update}`;
+      if (s.last_error) foot += ` · last error: ${s.last_error}`;
+      document.getElementById("foot").textContent = foot;
+    }
+
+    async function stopBot() {
+      if (!confirm("Stop the trading engine? Open positions are NOT closed."))
+        return;
+      await fetch("/api/stop", { method: "POST" });
+      refresh();
+    }
+
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>
