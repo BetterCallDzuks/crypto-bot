@@ -87,6 +87,15 @@ class FuturesConfig:
 
 
 @dataclass
+class BacktestConfig:
+    # Cost model used when replaying history. Defaults approximate Binance
+    # USDⓈ-M futures: 0.04% taker fee and 0.05% slippage per fill. These are
+    # only used by the backtester; live fills are charged by the real exchange.
+    fee_rate: float = 0.0004
+    slippage_rate: float = 0.0005
+
+
+@dataclass
 class WebConfig:
     host: str = "127.0.0.1"
     port: int = 4000
@@ -118,6 +127,7 @@ class Config:
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     futures: FuturesConfig = field(default_factory=FuturesConfig)
+    backtest: BacktestConfig = field(default_factory=BacktestConfig)
     web: WebConfig = field(default_factory=WebConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
 
@@ -185,6 +195,11 @@ class Config:
                 "market.source: simulated cannot be used with "
                 "trading.dry_run: false (there is no real exchange to trade on)."
             )
+
+        for name in ("fee_rate", "slippage_rate"):
+            value = getattr(self.backtest, name)
+            if not 0 <= value < 1:
+                raise ValueError(f"backtest.{name} must be within [0, 1)")
 
         f = self.futures
         if f.enabled:
@@ -373,6 +388,7 @@ def load_config(
         strategy=_parse_strategy(_section(raw, "strategy")),
         risk=RiskConfig(**_section(raw, "risk")),
         futures=FuturesConfig(**_section(raw, "futures")),
+        backtest=BacktestConfig(**_section(raw, "backtest")),
         web=WebConfig(**_section(raw, "web")),
         auth=auth,
     )
@@ -430,6 +446,7 @@ def save_config(cfg: Config, config_path: str | os.PathLike[str] = "config.yaml"
         "strategy": asdict(cfg.strategy),
         "risk": asdict(cfg.risk),
         "futures": asdict(cfg.futures),
+        "backtest": asdict(cfg.backtest),
         "web": asdict(cfg.web),
     }
     Path(config_path).write_text(

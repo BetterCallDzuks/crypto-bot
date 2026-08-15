@@ -67,3 +67,34 @@ def test_backtest_does_not_mutate_input_config():
     run_backtest(cfg, hist)
     # run_backtest works on a copy: the daily-loss limit is untouched here.
     assert cfg.risk.max_daily_loss_pct != 1.0
+
+
+def test_costs_reduce_returns_and_are_reported():
+    cfg = _config()
+    hist = generate_sim_history(cfg, bars=1000, seed=9)
+    free = run_backtest(cfg, hist, fee_rate=0.0, slippage_rate=0.0)
+    costed = run_backtest(cfg, hist, fee_rate=0.0004, slippage_rate=0.0005)
+    # Same trades, but costs drag the result down and are tallied.
+    assert free["fees_paid"] == 0.0
+    assert costed["fees_paid"] > 0.0
+    assert costed["final_equity"] < free["final_equity"]
+    assert costed["total_return_pct"] < free["total_return_pct"]
+
+
+def test_cost_model_defaults_come_from_config():
+    cfg = _config()
+    cfg.backtest.fee_rate = 0.001
+    cfg.backtest.slippage_rate = 0.001
+    hist = generate_sim_history(cfg, bars=600, seed=4)
+    m = run_backtest(cfg, hist)          # no explicit rates -> use config
+    assert m["fee_rate"] == 0.001 and m["slippage_rate"] == 0.001
+
+
+def test_state_zero_cost_matches_plain_accounting():
+    from cryptobot.state import PortfolioState
+    s = PortfolioState(bases=["BTC"], symbols={"BTC": "BTC/USDC:USDC"},
+                       starting_balance=10_000, futures=True, leverage=5)
+    s.open_position("BTC", "long", 1, 100, margin=20, leverage=5, reason="x")
+    assert s.symbols["BTC"].position.entry_price == 100      # no slippage
+    pnl = s.close_position("BTC", 110, reason="tp")
+    assert pnl == 10 and s.total_fees == 0.0                 # no fees

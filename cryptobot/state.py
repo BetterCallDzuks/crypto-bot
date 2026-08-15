@@ -36,9 +36,10 @@ def _iso(dt: datetime) -> str:
 class Position:
     side: str               # "long" | "short"
     quantity: float
-    entry_price: float
+    entry_price: float      # actual fill price (includes slippage)
     leverage: int
     margin: float
+    open_fee: float = 0.0    # fee paid to open, charged again to this trade at close
     opened_at: str = field(default_factory=lambda: _iso(_now()))
 
     @property
@@ -88,12 +89,19 @@ class PortfolioState:
                  starting_balance: float, quote_currency: str = "USDC",
                  dry_run: bool = True, futures: bool = False,
                  leverage: int = 1, trades_maxlen: int = 300,
-                 equity_maxlen: int = 500) -> None:
+                 equity_maxlen: int = 500, fee_rate: float = 0.0,
+                 slippage_rate: float = 0.0) -> None:
         self._lock = threading.Lock()
         self.quote_currency = quote_currency
         self.dry_run = dry_run
         self.futures = futures
         self.leverage = leverage
+
+        # Cost model. Zero for live trading (the real exchange charges its own
+        # fees on fills); set for backtests to model taker fees + slippage.
+        self.fee_rate = fee_rate
+        self.slippage_rate = slippage_rate
+        self.total_fees = 0.0
 
         self.starting_equity = starting_balance
         self.quote_balance = starting_balance          # shared free margin
@@ -137,19 +145,27 @@ class PortfolioState:
             st.price_history.append((_iso(_now()), price))
             self.last_update = _iso(_now())
 
+    def _fill_price(self, is_buy: bool, price: float) -> float:
+        """Apply slippage: a buy fills higher, a sell lower (always adverse)."""
+        s = self.slippage_rate
+        return price * (1 + s) if is_buy else price * (1 - s)
+
     def open_position(self, base: str, side: str, quantity: float, price: float,
                       margin: float, leverage: int, reason: str) -> None:
         with self._lock:
             st = self.symbols[base]
-            self.quote_balance -= margin
+            fill = self._fill_price(side == "long", price)   # open long = buy
+            fee = quantity * fill * self.fee_rate
+            self.quote_balance -= margin + fee
+            self.total_fees += fee
             st.position = Position(side=side, quantity=quantity,
-                                   entry_price=price, leverage=leverage,
-                                   margin=margin)
+                                   entry_price=fill, leverage=leverage,
+                                   margin=margin, open_fee=fee)
             st.trades_count += 1
             self.trades.appendleft(Trade(
                 base=base, action=f"open_{side}",
                 side="buy" if side == "long" else "sell",
-                quantity=quantity, price=price, reason=reason))
+                quantity=quantity, price=fill, reason=reason))
             self.last_update = _iso(_now())
 
     def close_position(self, base: str, price: float, reason: str) -> float:
@@ -158,10 +174,16 @@ class PortfolioState:
             if st.position is None:
                 return 0.0
             pos = st.position
-            pnl = pos.unrealized_pnl(price)
+            fill = self._fill_price(pos.side == "short", price)  # close short = buy
             if reason == "liquidation":
-                pnl = -pos.margin
-            self.quote_balance += pos.margin + pnl
+                gross = -pos.margin
+            else:
+                gross = pos.direction * (fill - pos.entry_price) * pos.quantity
+            close_fee = pos.quantity * fill * self.fee_rate
+            self.total_fees += close_fee
+            # Net P&L charges this trade for both the open and close fees.
+            pnl = gross - close_fee - pos.open_fee
+            self.quote_balance += pos.margin + gross - close_fee
             self.realized_pnl += pnl
             st.realized_pnl += pnl
             st.trades_count += 1
@@ -170,7 +192,7 @@ class PortfolioState:
             self.trades.appendleft(Trade(
                 base=base, action=f"close_{pos.side}",
                 side="sell" if pos.side == "long" else "buy",
-                quantity=pos.quantity, price=price, reason=reason, pnl=pnl))
+                quantity=pos.quantity, price=fill, reason=reason, pnl=pnl))
             st.position = None
             self.last_update = _iso(_now())
             return pnl
@@ -246,6 +268,7 @@ class PortfolioState:
                 "equity": equity,
                 "quote_balance": self.quote_balance,
                 "realized_pnl": self.realized_pnl,
+                "total_fees": self.total_fees,
                 "unrealized_pnl": total_unrealized,
                 "total_pnl": equity - self.starting_equity,
                 "total_return_pct": (

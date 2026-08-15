@@ -10,10 +10,14 @@ Data comes from the exchange (ccxt history) or the offline simulator. Results
 are summarized with the metrics that actually matter for judging a strategy:
 return, max drawdown, win rate, profit factor, and a risk-adjusted ratio.
 
-Caveats (read these): a backtest describes the past on one data set. It ignores
-trading fees, funding, and slippage, and the daily-loss kill switch is disabled
-during replay (it's a live-ops guardrail, not a strategy property). A good
-backtest is necessary but never sufficient — it is not a promise of profit.
+It models a configurable taker fee and slippage on every fill (defaults from
+``config.backtest``), so returns are net of trading costs.
+
+Caveats (read these): a backtest describes the past on one data set. It still
+does not model funding payments or order-book depth (large orders would slip
+more than a flat rate), and the daily-loss kill switch is disabled during
+replay (it's a live-ops guardrail, not a strategy property). A good backtest is
+necessary but never sufficient — it is not a promise of profit.
 """
 
 from __future__ import annotations
@@ -120,15 +124,21 @@ def load_history(config: Config, bars: int,
 # ---------------------------------------------------------------------------
 # Backtest run + metrics
 # ---------------------------------------------------------------------------
-def run_backtest(config: Config, history: Dict[str, List[float]]) -> dict:
+def run_backtest(config: Config, history: Dict[str, List[float]],
+                 fee_rate: float | None = None,
+                 slippage_rate: float | None = None) -> dict:
     """Replay ``history`` through the engine and return metrics + equity curve.
 
     Works on a copy of ``config`` with the daily-loss kill switch disabled so
-    the run measures the strategy and its exits over the full period.
+    the run measures the strategy and its exits over the full period. Taker
+    fees and slippage are modeled per fill (defaults from ``config.backtest``).
     """
     cfg = copy.deepcopy(config)
     cfg.risk.max_daily_loss_pct = 1.0            # disable daily halt for replay
     cfg.trading.dry_run = True
+    fee_rate = cfg.backtest.fee_rate if fee_rate is None else fee_rate
+    slippage_rate = (cfg.backtest.slippage_rate if slippage_rate is None
+                     else slippage_rate)
 
     bases = [b for b in cfg.market.symbols if history.get(b)]
     if not bases:
@@ -143,6 +153,7 @@ def run_backtest(config: Config, history: Dict[str, List[float]]) -> dict:
         futures=cfg.futures.enabled,
         leverage=cfg.futures.leverage if cfg.futures.enabled else 1,
         trades_maxlen=10_000_000, equity_maxlen=10_000_000,
+        fee_rate=fee_rate, slippage_rate=slippage_rate,
     )
     replay = ReplayExchange({b: history[b][:length] for b in bases})
     engine = TradingEngine(cfg, replay, state)      # thread never started
@@ -163,6 +174,9 @@ def run_backtest(config: Config, history: Dict[str, List[float]]) -> dict:
     metrics["symbols"] = bases
     metrics["strategy"] = cfg.strategy.name
     metrics["leverage"] = state.leverage
+    metrics["fees_paid"] = state.total_fees
+    metrics["fee_rate"] = fee_rate
+    metrics["slippage_rate"] = slippage_rate
     metrics["equity_curve"] = _downsample([e for _, e in state.equity_curve], 300)
     return metrics
 
@@ -224,8 +238,9 @@ def _metrics(state: PortfolioState, timeframe: str) -> dict:
     }
 
 
-def compare_strategies(config: Config,
-                       history: Dict[str, List[float]]) -> List[dict]:
+def compare_strategies(config: Config, history: Dict[str, List[float]],
+                       fee_rate: float | None = None,
+                       slippage_rate: float | None = None) -> List[dict]:
     """Backtest every registered strategy on the same history; rank by return."""
     results = []
     for name in REGISTRY:
@@ -233,7 +248,8 @@ def compare_strategies(config: Config,
         cfg.strategy.name = name
         cfg.strategy.params = {}
         try:
-            m = run_backtest(cfg, history)
+            m = run_backtest(cfg, history, fee_rate=fee_rate,
+                             slippage_rate=slippage_rate)
             m["label"] = REGISTRY[name].label
             results.append(m)
         except Exception as exc:  # noqa: BLE001 - keep comparing the rest

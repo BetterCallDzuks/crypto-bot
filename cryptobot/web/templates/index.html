@@ -161,13 +161,18 @@
     <section class="card">
       <div class="panel-title">Backtest a strategy</div>
       <div class="sub">Replays historical candles through the live engine
-        (same sizing, stops, leverage). Data source: <b id="btSource">…</b>.
-        Ignores fees/funding/slippage; past results don't predict the future.</div>
+        (same sizing, stops, leverage), net of taker fee + slippage below.
+        Data source: <b id="btSource">…</b>. Funding not modeled; past results
+        don't predict the future.</div>
       <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:14px">
         <div class="field"><label for="btStrategy">Strategy</label>
           <select id="btStrategy"></select></div>
         <div class="field"><label for="btBars">Bars (history length)</label>
           <input type="number" id="btBars" value="1500" min="200" max="5000" step="100"></div>
+        <div class="field"><label for="btFee">Taker fee %</label>
+          <input type="number" id="btFee" value="0.04" min="0" step="0.01" style="width:90px"></div>
+        <div class="field"><label for="btSlip">Slippage %</label>
+          <input type="number" id="btSlip" value="0.05" min="0" step="0.01" style="width:90px"></div>
         <button class="primary" onclick="runBacktest()">Run backtest</button>
         <button onclick="compareBacktest()">Compare all strategies</button>
         <span id="btMsg" class="sub"></span>
@@ -533,15 +538,19 @@ async function initBacktest() {
   if (src.textContent === "…") src.textContent = "run to load";
 }
 const pf = v => v == null ? "∞" : fmt(v, 2);
+function costBody() {
+  return { bars: Number(document.getElementById("btBars").value),
+           fee_pct: Number(document.getElementById("btFee").value),
+           slippage_pct: Number(document.getElementById("btSlip").value) };
+}
 async function runBacktest() {
   const strategy = document.getElementById("btStrategy").value;
-  const bars = document.getElementById("btBars").value;
   const msg = document.getElementById("btMsg");
   msg.textContent = "Running backtest…";
   try {
     const r = await fetch("/api/backtest", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ strategy, bars: Number(bars) }) });
+      body: JSON.stringify({ strategy, ...costBody() }) });
     const data = await r.json();
     if (!data.ok) { msg.textContent = "Error: " + data.error; return; }
     msg.textContent = ""; document.getElementById("btSource").textContent = data.source;
@@ -558,22 +567,21 @@ function renderBacktest(m) {
     ["Win rate", `${fmt(m.win_rate_pct, 1)}%`, m.win_rate_pct >= 50 ? "up" : ""],
     ["Profit factor", pf(m.profit_factor), m.profit_factor >= 1 ? "up" : "down"],
     ["Trades", `${m.trades}`, ""],
-    ["Sharpe (annved)", fmt(m.sharpe, 2), cls(m.sharpe)],
-    ["Best trade", `${sign(m.best_trade)}`, "up"],
-    ["Worst trade", `${sign(m.worst_trade)}`, "down"],
+    ["Sharpe (ann.)", fmt(m.sharpe, 2), cls(m.sharpe)],
+    ["Fees paid", `${fmt(m.fees_paid)} ${QUOTE}`, "down"],
+    ["Best / worst", `${sign(m.best_trade)} / ${sign(m.worst_trade)}`, ""],
   ];
   document.getElementById("btMetrics").innerHTML = cards.map(([l, v, c]) =>
     `<div class="card"><div class="label">${l}</div><div class="value ${c}">${v}</div></div>`).join("");
   lineChart(document.getElementById("btEquity"), m.equity_curve, { area: true, autoColor: true, width: 2 });
 }
 async function compareBacktest() {
-  const bars = document.getElementById("btBars").value;
   const msg = document.getElementById("btMsg");
   msg.textContent = "Comparing all strategies… (this can take a few seconds)";
   try {
     const r = await fetch("/api/backtest/compare", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bars: Number(bars) }) });
+      body: JSON.stringify(costBody()) });
     const data = await r.json();
     if (!data.ok) { msg.textContent = "Error: " + data.error; return; }
     msg.textContent = ""; document.getElementById("btSource").textContent = data.source;
