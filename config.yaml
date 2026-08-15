@@ -63,6 +63,13 @@ risk:
   take_profit_pct: 0.04       # exit when price moves 4% in favor
   max_daily_loss_pct: 0.05    # halt new entries after a 5% daily drawdown
 
+backtest:
+  # Cost model applied when replaying history (per fill). Defaults approximate
+  # Binance USDT-margined futures. Only affects backtests; live fills are
+  # charged by the exchange. Values are fractions: 0.0004 = 0.04%.
+  fee_rate: 0.0004        # taker fee per fill
+  slippage_rate: 0.0005   # adverse price slippage per fill
+
 web:
   # 127.0.0.1 = localhost only (use an SSH tunnel or Tailscale to reach it
   # remotely). Set 0.0.0.0 to listen on all interfaces for Tailscale access —

@@ -154,13 +154,21 @@ length, hit *Run backtest* for a full metric breakdown + equity curve, or
 Data comes from `market.source`: `simulated` (offline) or `exchange` (real
 Binance candles via ccxt). Reported metrics: total return, **max drawdown**,
 win rate, **profit factor** (gross win ÷ gross loss), average/best/worst trade,
-and an annualized Sharpe ratio.
+**fees paid**, and an annualized Sharpe ratio.
 
-> **What a backtest is not.** It measures one slice of the past. It ignores
-> trading fees, funding, and slippage, and it disables the daily-loss kill
-> switch during replay. A great backtest is necessary but never sufficient —
-> it does not promise future profit. Treat it as a filter for *bad* strategies,
-> then paper-trade the survivors before going live.
+**Costs are modeled.** Every fill is charged a configurable taker fee and
+slippage (defaults: 0.04% fee, 0.05% slippage — set in `config.yaml` under
+`backtest`, or per-run in the tab / with `--fee` / `--slippage`). This matters
+enormously: a high-churn strategy that looks green at zero cost can turn deeply
+negative once fees are included — exactly the trap you want the backtester to
+expose *before* real money is involved.
+
+> **What a backtest still isn't.** It measures one slice of the past, doesn't
+> model funding payments or order-book depth (a big order slips more than a flat
+> rate), and disables the daily-loss kill switch during replay. A great backtest
+> is necessary but never sufficient — it does not promise future profit. Treat
+> it as a filter for *bad* strategies, then paper-trade the survivors before
+> going live.
 
 ---
 

@@ -136,6 +136,7 @@ def create_app(config: Config, state: PortfolioState,
         from ..backtest import load_history, run_backtest
         body = request.get_json(silent=True) or {}
         bars = max(200, min(int(body.get("bars", 1500)), 5000))
+        fee, slip = _cost_params(body, config)
         cfg = _copy.deepcopy(config)
         if body.get("strategy"):
             cfg.strategy.name = str(body["strategy"])
@@ -143,7 +144,7 @@ def create_app(config: Config, state: PortfolioState,
         try:
             cfg.validate()
             history = load_history(cfg, bars)
-            result = run_backtest(cfg, history)
+            result = run_backtest(cfg, history, fee_rate=fee, slippage_rate=slip)
         except Exception as exc:  # noqa: BLE001 - reported to the client
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True, "result": result,
@@ -154,12 +155,24 @@ def create_app(config: Config, state: PortfolioState,
         from ..backtest import compare_strategies, load_history
         body = request.get_json(silent=True) or {}
         bars = max(200, min(int(body.get("bars", 1500)), 5000))
+        fee, slip = _cost_params(body, config)
         try:
             history = load_history(config, bars)
-            results = compare_strategies(config, history)
+            results = compare_strategies(config, history, fee_rate=fee,
+                                         slippage_rate=slip)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True, "results": results,
                         "source": config.market.source})
 
     return app
+
+
+def _cost_params(body: dict, config: Config) -> tuple[float, float]:
+    """Read fee/slippage % from the request body, defaulting to config."""
+    def pct(key: str, default: float) -> float:
+        if key in body and body[key] not in (None, ""):
+            return max(0.0, float(body[key]) / 100.0)   # UI sends percent
+        return default
+    return (pct("fee_pct", config.backtest.fee_rate),
+            pct("slippage_pct", config.backtest.slippage_rate))
