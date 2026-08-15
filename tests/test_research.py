@@ -2,9 +2,9 @@
 
 import datetime as dt
 
-from cryptobot.backtest import compare_strategies, generate_sim_history, walk_forward
-from cryptobot.config import Config, FuturesConfig, MarketConfig, StrategyConfig
-from cryptobot.research import generate, render
+from kovanica.backtest import compare_strategies, generate_sim_history, walk_forward
+from kovanica.config import Config, FuturesConfig, MarketConfig, StrategyConfig
+from kovanica.research import generate, render
 
 
 def _config():

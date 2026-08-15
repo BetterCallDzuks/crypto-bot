@@ -19,8 +19,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from cryptobot.config import load_config
-from cryptobot.research import generate
+from kovanica.config import load_config
+from kovanica.research import generate
 
 
 def main() -> int:

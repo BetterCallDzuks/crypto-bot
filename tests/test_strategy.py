@@ -1,4 +1,4 @@
-from cryptobot.strategy import Signal, SmaCrossoverStrategy, build_strategy, sma
+from kovanica.strategy import Signal, SmaCrossoverStrategy, build_strategy, sma
 
 
 def test_sma_basic():

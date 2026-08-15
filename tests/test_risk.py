@@ -1,4 +1,4 @@
-from cryptobot.risk import (
+from kovanica.risk import (
     RiskLimits,
     daily_loss_limit_hit,
     margin_to_use,

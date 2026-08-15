@@ -19,7 +19,7 @@ import ccxt
 
 from .config import Config
 
-log = logging.getLogger("cryptobot.exchange")
+log = logging.getLogger("kovanica.exchange")
 
 
 class ExchangeClient:

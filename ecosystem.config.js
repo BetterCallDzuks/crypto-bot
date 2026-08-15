@@ -1,11 +1,11 @@
-// PM2 process definition for crypto-bot.
+// PM2 process definition for Kovanica Bot.
 //
 // Usage:
 //   ./setup.sh                       # one-time: create venv + install deps
 //   pm2 start ecosystem.config.js    # start the bot + dashboard under PM2
-//   pm2 logs crypto-bot              # follow logs
-//   pm2 restart crypto-bot           # restart (needed after symbol/quote change)
-//   pm2 stop crypto-bot              # stop
+//   pm2 logs kovanica-bot              # follow logs
+//   pm2 restart kovanica-bot           # restart (needed after symbol/quote change)
+//   pm2 stop kovanica-bot              # stop
 //   pm2 save && pm2 startup          # keep it running across reboots
 //
 // PM2 runs the Python entrypoint via the project virtualenv interpreter.
@@ -13,7 +13,7 @@
 module.exports = {
   apps: [
     {
-      name: "crypto-bot",
+      name: "kovanica-bot",
       script: "run.py",
       interpreter: "./.venv/bin/python",
       cwd: __dirname,

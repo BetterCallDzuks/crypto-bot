@@ -2,7 +2,7 @@
 
 import json
 
-from cryptobot.pricefeed import LivePriceFeed, stream_symbol
+from kovanica.pricefeed import LivePriceFeed, stream_symbol
 
 
 def _feed():
@@ -62,11 +62,11 @@ class FakeFeed:
 
 
 def test_risk_monitor_closes_position_on_live_stop_loss():
-    from cryptobot.config import (
+    from kovanica.config import (
         Config, FuturesConfig, MarketConfig, RiskConfig, StrategyConfig, TradingConfig,
     )
-    from cryptobot.state import PortfolioState
-    from cryptobot.trader import TradingEngine
+    from kovanica.state import PortfolioState
+    from kovanica.trader import TradingEngine
 
     cfg = Config(
         market=MarketConfig(source="exchange", quote_currency="USDC", symbols=["BTC"]),

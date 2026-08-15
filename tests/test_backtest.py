@@ -2,7 +2,7 @@
 
 import pytest
 
-from cryptobot.backtest import (
+from kovanica.backtest import (
     ReplayExchange,
     align_funding,
     compare_strategies,
@@ -10,7 +10,7 @@ from cryptobot.backtest import (
     run_backtest,
     walk_forward,
 )
-from cryptobot.config import Config, FuturesConfig, MarketConfig, StrategyConfig
+from kovanica.config import Config, FuturesConfig, MarketConfig, StrategyConfig
 
 
 def _config(strategy="sma_crossover"):
@@ -59,7 +59,7 @@ def test_compare_returns_all_strategies_sorted():
     cfg = _config()
     hist = generate_sim_history(cfg, bars=800, seed=3)
     rows = compare_strategies(cfg, hist)
-    from cryptobot.strategy import REGISTRY
+    from kovanica.strategy import REGISTRY
     assert {r["strategy"] for r in rows} == set(REGISTRY)
     returns = [r["total_return_pct"] for r in rows]
     assert returns == sorted(returns, reverse=True)   # ranked best-first
@@ -95,7 +95,7 @@ def test_cost_model_defaults_come_from_config():
 
 
 def test_state_zero_cost_matches_plain_accounting():
-    from cryptobot.state import PortfolioState
+    from kovanica.state import PortfolioState
     s = PortfolioState(bases=["BTC"], symbols={"BTC": "BTC/USDC:USDC"},
                        starting_balance=10_000, futures=True, leverage=5)
     s.open_position("BTC", "long", 1, 100, margin=20, leverage=5, reason="x")
@@ -105,7 +105,7 @@ def test_state_zero_cost_matches_plain_accounting():
 
 
 def test_funding_charges_long_and_pays_short():
-    from cryptobot.state import PortfolioState
+    from kovanica.state import PortfolioState
     # Long pays funding when the rate is positive.
     s = PortfolioState(bases=["BTC"], symbols={"BTC": "BTC/USDC:USDC"},
                        starting_balance=10_000, futures=True, leverage=5)

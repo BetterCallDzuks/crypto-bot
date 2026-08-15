@@ -2,7 +2,7 @@
 
 import pytest
 
-from cryptobot.strategy import (
+from kovanica.strategy import (
     REGISTRY,
     BollingerStrategy,
     ConfluenceStrategy,

@@ -58,7 +58,7 @@ class TradingConfig:
 
 @dataclass
 class StrategyConfig:
-    # Strategy key from cryptobot.strategy.REGISTRY (e.g. confluence,
+    # Strategy key from kovanica.strategy.REGISTRY (e.g. confluence,
     # ema_crossover, macd, rsi, bollinger, donchian, sma_crossover).
     name: str = "confluence"
     # Strategy-specific parameters; missing keys fall back to the strategy's

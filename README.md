@@ -1,4 +1,4 @@
-# crypto-bot
+# Kovanica Bot
 
 A safety-first, **multi-symbol** crypto **futures** trading bot with a full web
 dashboard.
@@ -88,8 +88,8 @@ crash or reboot. An `ecosystem.config.js` is included:
 ```bash
 ./setup.sh                        # one-time
 pm2 start ecosystem.config.js     # start bot + dashboard
-pm2 logs crypto-bot               # follow logs
-pm2 restart crypto-bot            # after changing symbols or quote currency
+pm2 logs kovanica-bot               # follow logs
+pm2 restart kovanica-bot            # after changing symbols or quote currency
 pm2 save && pm2 startup           # survive reboots
 ```
 
@@ -121,7 +121,7 @@ proxy) — see **[DEPLOY.md](DEPLOY.md)**.
 ./.venv/bin/pytest
 ```
 
-The suite (84 tests) covers every strategy and its indicators, side-aware risk
+The suite (94 tests) covers every strategy and its indicators, side-aware risk
 and liquidation, config validation + live settings updates, multi-symbol
 portfolio accounting, the backtester (costs, funding, walk-forward), and full
 engine round-trips (long/short flips, stop-loss, liquidation) using a fake
@@ -293,7 +293,7 @@ docker-compose.yml      One-command self-hosting
 setup.sh                One-time venv + deps + .env bootstrap
 landing/index.html      Static marketing/landing page (host it anywhere)
 LICENSE · DISCLAIMER.md PolyForm Noncommercial license and risk disclaimer
-cryptobot/
+kovanica/
   pricefeed.py          Live Binance WebSocket mark-price feed
   config.py             Typed config; validation, live updates, persistence
   strategy.py           Strategy library + indicators (registry & factory)
@@ -328,7 +328,7 @@ tests/                  Strategy, risk, config, state, and engine tests (41)
 
 ## Sharing it with others
 
-crypto-bot is meant to be **self-hosted**: each person runs their own copy with
+Kovanica Bot is meant to be **self-hosted**: each person runs their own copy with
 their own API keys on their own machine. Nobody's funds or keys are ever sent to
 anyone else. That's the safe, low-liability way to share a trading tool —
 you're distributing software, not operating a financial service. A ready-to-host

@@ -5,7 +5,7 @@ leveraged stop-loss and liquidation, long-only mode, and independent handling
 of two symbols in one tick.
 """
 
-from cryptobot.config import (
+from kovanica.config import (
     Config,
     FuturesConfig,
     MarketConfig,
@@ -13,8 +13,8 @@ from cryptobot.config import (
     StrategyConfig,
     TradingConfig,
 )
-from cryptobot.state import PortfolioState
-from cryptobot.trader import TradingEngine
+from kovanica.state import PortfolioState
+from kovanica.trader import TradingEngine
 
 # Crossover series for fast=2 / slow=3.
 BUY = [10, 9, 8, 8, 12]      # upward crossover -> BUY, last price 12

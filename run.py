@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""crypto-bot entrypoint.
+"""Kovanica Bot entrypoint.
 
 Wires the pieces together and starts both the trading engine (background
 thread) and the web dashboard (foreground). Run with:
@@ -15,11 +15,11 @@ from __future__ import annotations
 import logging
 import sys
 
-from cryptobot.config import load_config
-from cryptobot.exchange import ExchangeClient
-from cryptobot.state import PortfolioState
-from cryptobot.trader import TradingEngine
-from cryptobot.web.app import create_app
+from kovanica.config import load_config
+from kovanica.exchange import ExchangeClient
+from kovanica.state import PortfolioState
+from kovanica.trader import TradingEngine
+from kovanica.web.app import create_app
 
 
 def main() -> int:
@@ -27,7 +27,7 @@ def main() -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
-    log = logging.getLogger("cryptobot")
+    log = logging.getLogger("kovanica")
 
     try:
         config = load_config()
@@ -53,7 +53,7 @@ def main() -> int:
 
     try:
         if config.market.source == "simulated":
-            from cryptobot.simulated import SimulatedExchange
+            from kovanica.simulated import SimulatedExchange
             log.info("Using SIMULATED market data (offline, no network/keys).")
             exchange = SimulatedExchange(config)
         else:
@@ -76,7 +76,7 @@ def main() -> int:
     price_feed = None
     if (config.market.source == "exchange" and config.market.live_feed
             and config.exchange.id == "binance"):
-        from cryptobot.pricefeed import LivePriceFeed
+        from kovanica.pricefeed import LivePriceFeed
         price_feed = LivePriceFeed(bases, config.market.quote_currency,
                                    sandbox=config.exchange.sandbox)
         log.info("Live WebSocket price feed enabled (real-time risk checks).")

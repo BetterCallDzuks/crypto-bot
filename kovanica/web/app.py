@@ -30,7 +30,7 @@ from ..config import Config, local_config_path, save_config
 from ..state import PortfolioState
 from ..trader import TradingEngine
 
-log = logging.getLogger("cryptobot.web")
+log = logging.getLogger("kovanica.web")
 
 
 def create_app(config: Config, state: PortfolioState,

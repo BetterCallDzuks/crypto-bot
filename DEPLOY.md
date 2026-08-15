@@ -1,4 +1,4 @@
-# Deploying crypto-bot on a VPS
+# Deploying Kovanica Bot on a VPS
 
 A practical guide to running the bot on a Linux VPS under PM2, and accessing
 the dashboard securely from anywhere.
@@ -54,8 +54,8 @@ nano config.yaml      # optional: quote_currency, symbols, leverage, port, ...
 
 ```bash
 pm2 start ecosystem.config.js     # start bot + dashboard
-pm2 logs crypto-bot               # follow logs
-pm2 restart crypto-bot            # after changing symbols or quote currency
+pm2 logs kovanica-bot               # follow logs
+pm2 restart kovanica-bot            # after changing symbols or quote currency
 pm2 save                          # remember the process list
 pm2 startup                       # print a command; run it so PM2 auto-starts on reboot
 ```
@@ -83,7 +83,7 @@ DASHBOARD_PASSWORD=your-strong-password
 SECRET_KEY=paste-output-of: python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-`pm2 restart crypto-bot` to apply. Login is required whenever a password is
+`pm2 restart kovanica-bot` to apply. Login is required whenever a password is
 set (and `web.auth_enabled: true`, the default). Without a password the
 dashboard only runs on localhost, for the offline quickstart.
 
@@ -142,14 +142,14 @@ opened in the firewall.)
 
 ### Option C — Public HTTPS with a password (Caddy reverse proxy)
 
-Use this only if you want a normal `https://bot.yourdomain.com` URL. It adds
+Use this only if you want a normal `https://bot.kovanica.online` URL. It adds
 **TLS + a password** in front of the dashboard so it isn't wide open. You need
 a domain pointing at the VPS.
 
 Install Caddy, then create `/etc/caddy/Caddyfile`:
 
 ```
-bot.yourdomain.com {
+bot.kovanica.online {
     # generate the hash with:  caddy hash-password
     basicauth {
         admin JDJhJDE0J...your-bcrypt-hash...
@@ -221,7 +221,7 @@ profitable — not the full-period ranking; the latter is prone to curve-fitting
 cd crypto-bot
 git pull origin main
 ./setup.sh                 # refresh deps (safe to re-run)
-pm2 restart crypto-bot
+pm2 restart kovanica-bot
 ```
 
 Settings changed from the dashboard are written to a git-ignored
@@ -241,14 +241,14 @@ for any field it sets.
 
 ## Troubleshooting
 
-- `pm2 logs crypto-bot` — see startup errors and trade activity.
+- `pm2 logs kovanica-bot` — see startup errors and trade activity.
 - `cat reports/latest.md` — the newest walk-forward research report.
 - **`git pull` refuses over `config.yaml`** — see *Updating* above; your
   settings live in `config.local.yaml` now.
 - **"No space left on device"** — clear old logs in `./data/` and PM2 logs
   (`pm2 flush`).
 - **Config error on start** — the message names the offending field; fix it in
-  `config.yaml` and `pm2 restart crypto-bot`.
+  `config.yaml` and `pm2 restart kovanica-bot`.
 - **Network error fetching prices** — the exchange host may be blocked or the
   symbols wrong for your account; verify tradable symbols on Binance and check
   `market.quote_currency` / `market.symbols`.

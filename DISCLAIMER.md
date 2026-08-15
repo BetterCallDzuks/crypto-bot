@@ -1,6 +1,6 @@
-# Disclaimer — read before using crypto-bot
+# Disclaimer — read before using Kovanica Bot
 
-**crypto-bot is software you run yourself, on your own exchange account, at your
+**Kovanica Bot is software you run yourself, on your own exchange account, at your
 own risk. It is not a managed service, an investment product, or financial
 advice.**
 

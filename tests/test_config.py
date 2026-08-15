@@ -1,6 +1,6 @@
 import pytest
 
-from cryptobot.config import (
+from kovanica.config import (
     Config,
     ExchangeConfig,
     FuturesConfig,
@@ -79,7 +79,7 @@ def test_unknown_source_rejected():
 
 
 def test_risk_pct_out_of_range_rejected():
-    from cryptobot.config import RiskConfig
+    from kovanica.config import RiskConfig
     cfg = Config(risk=RiskConfig(position_size_pct=1.5))
     with pytest.raises(ValueError):
         cfg.validate()
@@ -142,7 +142,7 @@ def test_apply_updates_rolls_back_on_invalid():
 
 
 def test_save_and_reload_round_trip(tmp_path):
-    from cryptobot.config import load_config, save_config
+    from kovanica.config import load_config, save_config
     cfg = Config()
     cfg.apply_updates({"futures": {"leverage": 7},
                        "market": {"symbols": ["BTC", "ETH"]}})
@@ -158,7 +158,7 @@ def test_save_and_reload_round_trip(tmp_path):
 def test_local_overlay_overrides_base_without_touching_it(tmp_path):
     import yaml as _yaml
 
-    from cryptobot.config import load_config
+    from kovanica.config import load_config
     base = tmp_path / "config.yaml"
     base.write_text(_yaml.safe_dump({
         "futures": {"leverage": 5},

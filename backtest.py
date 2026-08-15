@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Command-line backtesting for crypto-bot.
+"""Command-line backtesting for Kovanica Bot.
 
 Examples:
     ./.venv/bin/python backtest.py --bars 3000
@@ -17,13 +17,13 @@ import argparse
 import copy
 import sys
 
-from cryptobot.backtest import (
+from kovanica.backtest import (
     compare_strategies,
     load_market,
     run_backtest,
     walk_forward,
 )
-from cryptobot.config import load_config
+from kovanica.config import load_config
 
 
 def _fmt(v, d=2):
@@ -31,7 +31,7 @@ def _fmt(v, d=2):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Backtest crypto-bot strategies.")
+    ap = argparse.ArgumentParser(description="Backtest Kovanica Bot strategies.")
     ap.add_argument("--strategy", help="strategy key (default: config value)")
     ap.add_argument("--bars", type=int, default=2000, help="history length")
     ap.add_argument("--compare", action="store_true",

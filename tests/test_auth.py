@@ -3,9 +3,9 @@
 import pytest
 from werkzeug.security import generate_password_hash
 
-from cryptobot.config import AuthConfig, Config, WebConfig
-from cryptobot.state import PortfolioState
-from cryptobot.web.app import create_app
+from kovanica.config import AuthConfig, Config, WebConfig
+from kovanica.state import PortfolioState
+from kovanica.web.app import create_app
 
 
 def _state():

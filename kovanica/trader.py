@@ -30,7 +30,7 @@ from .risk import (
 from .state import PortfolioState
 from .strategy import REGISTRY, Signal, build_strategy
 
-log = logging.getLogger("cryptobot.trader")
+log = logging.getLogger("kovanica.trader")
 
 
 class TradingEngine:

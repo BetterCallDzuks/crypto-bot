@@ -1,6 +1,6 @@
 """Accounting tests for the multi-symbol margin/leverage portfolio."""
 
-from cryptobot.state import PortfolioState
+from kovanica.state import PortfolioState
 
 
 def _state(bases=("BTC",)):
