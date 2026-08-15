@@ -84,6 +84,10 @@ pm2 save && pm2 startup           # survive reboots
 PM2 runs `run.py` through the project's `./.venv/bin/python`, so no global
 Python packages are needed.
 
+For a full VPS walkthrough — prerequisites, PM2 setup, and how to reach the
+dashboard securely from anywhere (SSH tunnel, Tailscale, or an HTTPS reverse
+proxy) — see **[DEPLOY.md](DEPLOY.md)**.
+
 ## Running the tests
 
 ```bash
