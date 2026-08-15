@@ -4,6 +4,7 @@ import pytest
 
 from cryptobot.backtest import (
     ReplayExchange,
+    align_funding,
     compare_strategies,
     generate_sim_history,
     run_backtest,
@@ -156,3 +157,37 @@ def test_walk_forward_bad_objective():
     hist = generate_sim_history(cfg, bars=1500, seed=1)
     with pytest.raises(ValueError, match="objective"):
         walk_forward(cfg, hist, folds=2, objective="vibes")
+
+
+# -- real funding schedule --------------------------------------------------
+def test_align_funding_attaches_events_to_bars():
+    # Events land on the first bar at/after their timestamp.
+    ts = [0, 60, 120, 180]
+    events = [(60, 0.001), (180, 0.002)]
+    assert align_funding(ts, events) == [0.0, 0.001, 0.0, 0.002]
+
+
+def test_align_funding_before_first_bar_and_empty():
+    assert align_funding([100, 200], [(50, 0.001)]) == [0.001, 0.0]
+    assert align_funding([100, 200], []) == [0.0, 0.0]
+    assert align_funding([], [(1, 0.001)]) == []
+
+
+def test_align_funding_sums_multiple_in_one_bar():
+    # Two events between bar 0 and bar 1 both attach to bar 1.
+    ts = [0, 100]
+    events = [(30, 0.001), (70, 0.002)]
+    assert align_funding(ts, events) == [0.0, pytest.approx(0.003)]
+
+
+def test_run_backtest_uses_funding_schedule_over_flat():
+    cfg = _config()
+    hist = generate_sim_history(cfg, bars=1000, seed=5)
+    length = min(len(v) for v in hist.values())
+    zero = {b: [0.0] * length for b in hist}
+    big = {b: [0.002] * length for b in hist}     # extreme, to force an effect
+    z = run_backtest(cfg, hist, funding_schedule=zero)
+    b = run_backtest(cfg, hist, funding_schedule=big)
+    assert z["funding_source"] == "historical"
+    assert z["funding_paid"] == 0.0
+    assert abs(b["funding_paid"]) > 0.0           # positions were funded

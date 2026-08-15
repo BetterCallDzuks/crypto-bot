@@ -101,7 +101,7 @@ proxy) — see **[DEPLOY.md](DEPLOY.md)**.
 ./.venv/bin/pytest
 ```
 
-The suite (80 tests) covers every strategy and its indicators, side-aware risk
+The suite (84 tests) covers every strategy and its indicators, side-aware risk
 and liquidation, config validation + live settings updates, multi-symbol
 portfolio accounting, the backtester (costs, funding, walk-forward), and full
 engine round-trips (long/short flips, stop-loss, liquidation) using a fake
@@ -158,12 +158,18 @@ win rate, **profit factor** (gross win ÷ gross loss), average/best/worst trade,
 
 **Costs are modeled.** Every fill is charged a configurable taker fee and
 slippage, and open positions pay/receive **perpetual funding** each interval
-(defaults: 0.04% fee, 0.05% slippage, 0.01% funding per 8h — set in
-`config.yaml` under `backtest`, or per-run in the tab / with `--fee`,
-`--slippage`, `--funding`). This matters enormously: a high-churn strategy that
-looks green at zero cost can turn deeply negative once costs are included —
-exactly the trap you want the backtester to expose *before* real money is
-involved.
+(defaults: 0.04% fee, 0.05% slippage — set in `config.yaml` under `backtest`, or
+per-run in the tab / with `--fee`, `--slippage`, `--funding`). This matters
+enormously: a high-churn strategy that looks green at zero cost can turn deeply
+negative once costs are included — exactly the trap you want the backtester to
+expose *before* real money is involved.
+
+**Funding uses real history on real data.** With `market.source: exchange`, the
+backtester pulls each symbol's actual historical funding rates from Binance
+(`fetch_funding_rate_history`) and applies them at their real timestamps — so
+longs and shorts are charged/paid what they truly would have been. The flat
+`funding_rate` is only a fallback for the offline `simulated` source. Each
+result reports whether funding was `historical` or `flat`.
 
 ### Walk-forward analysis
 

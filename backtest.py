@@ -19,7 +19,7 @@ import sys
 
 from cryptobot.backtest import (
     compare_strategies,
-    load_history,
+    load_market,
     run_backtest,
     walk_forward,
 )
@@ -56,12 +56,15 @@ def main() -> int:
     print(f"Loading {args.bars} bars from '{config.market.source}' for "
           f"{', '.join(config.market.symbols)} ({config.market.quote_currency}, "
           f"{config.futures.leverage}x)…")
-    history = load_history(config, args.bars)
+    history, funding = load_market(config, args.bars)
+    if funding is not None:
+        print("Using real historical funding rates from the exchange.")
 
     if args.walkforward:
         wf = walk_forward(config, history, folds=args.folds,
                           objective=args.objective, fee_rate=fee,
-                          slippage_rate=slip, funding_rate=fund)
+                          slippage_rate=slip, funding_rate=fund,
+                          funding_schedule=funding)
         s = wf["summary"]
         print(f"\nWalk-forward: {s['num_folds']} folds of {s['segment_bars']} "
               f"bars, selecting by {s['objective']} (out-of-sample results):")
@@ -84,7 +87,8 @@ def main() -> int:
 
     if args.compare:
         rows = compare_strategies(config, history, fee_rate=fee,
-                                  slippage_rate=slip, funding_rate=fund)
+                                  slippage_rate=slip, funding_rate=fund,
+                                  funding_schedule=funding)
         print(f"\n{'Strategy':<22}{'Return%':>10}{'MaxDD%':>10}"
               f"{'Win%':>8}{'Trades':>8}{'PF':>7}{'Sharpe':>9}")
         print("-" * 74)
@@ -102,13 +106,14 @@ def main() -> int:
         cfg.strategy.params = {}
         cfg.validate()
     m = run_backtest(cfg, history, fee_rate=fee, slippage_rate=slip,
-                     funding_rate=fund)
+                     funding_rate=fund, funding_schedule=funding)
     q = config.market.quote_currency
+    fund_desc = ("historical (from exchange)" if m["funding_source"] == "historical"
+                 else f"{m['funding_rate']*100:.3f}% per 8h (flat)")
     print(f"\nStrategy: {m['strategy']}   Bars: {m['bars']}   "
           f"Leverage: {m['leverage']}x")
     print(f"  Costs modeled  fee {m['fee_rate']*100:.3f}% / slippage "
-          f"{m['slippage_rate']*100:.3f}% per fill / funding "
-          f"{m['funding_rate']*100:.3f}% per 8h")
+          f"{m['slippage_rate']*100:.3f}% per fill / funding {fund_desc}")
     print(f"  Total return   {m['total_return_pct']:+.2f}%   "
           f"(equity {m['starting_equity']:.0f} -> {m['final_equity']:.0f})")
     print(f"  Max drawdown   {m['max_drawdown_pct']:.2f}%")

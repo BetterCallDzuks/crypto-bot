@@ -93,12 +93,20 @@ def generate_sim_history(config: Config, bars: int,
 
 def fetch_history(config: Config, bars: int) -> Dict[str, List[float]]:
     """Historical closes per symbol from the exchange via ccxt (paginated)."""
+    closes, _ = _fetch_ohlcv(config, bars)
+    return closes
+
+
+def _fetch_ohlcv(config: Config, bars: int
+                 ) -> tuple[Dict[str, List[float]], Dict[str, List[int]]]:
+    """Return (closes, open-timestamps-ms) per symbol from the exchange."""
     from .exchange import ExchangeClient
     client = ExchangeClient(config)
     ex = client._exchange
     tf = config.market.timeframe
     tf_ms = ex.parse_timeframe(tf) * 1000
-    hist: Dict[str, List[float]] = {}
+    closes: Dict[str, List[float]] = {}
+    times: Dict[str, List[int]] = {}
     for base, symbol in client.symbols.items():
         since = ex.milliseconds() - bars * tf_ms
         rows: list = []
@@ -110,8 +118,68 @@ def fetch_history(config: Config, bars: int) -> Dict[str, List[float]]:
             since = batch[-1][0] + tf_ms
             if len(batch) < 1000:
                 break
-        hist[base] = [r[4] for r in rows][-bars:]
-    return hist
+        rows = rows[-bars:]
+        closes[base] = [r[4] for r in rows]
+        times[base] = [r[0] for r in rows]
+    return closes, times
+
+
+def align_funding(timestamps: List[int],
+                  events: List[tuple[int, float]]) -> List[float]:
+    """Map funding events onto candle bars by timestamp (pure, testable).
+
+    Each funding event (ms, rate) is attached to the first bar at or after its
+    time, so replaying the schedule charges funding on the bar where it would
+    actually have settled. Returns a per-bar list of summed rates (0 elsewhere).
+    """
+    schedule = [0.0] * len(timestamps)
+    if not timestamps or not events:
+        return schedule
+    events = sorted(events)
+    ei = 0
+    for i, ts in enumerate(timestamps):
+        prev = timestamps[i - 1] if i > 0 else None
+        while ei < len(events) and events[ei][0] <= ts:
+            if prev is None or events[ei][0] > prev:
+                schedule[i] += events[ei][1]
+            ei += 1
+    return schedule
+
+
+def build_funding_schedule(config: Config, timestamps: Dict[str, List[int]]
+                           ) -> Dict[str, List[float]]:
+    """Fetch real historical funding rates and align them to the candle bars."""
+    from .exchange import ExchangeClient
+    client = ExchangeClient(config)
+    ex = client._exchange
+    schedule: Dict[str, List[float]] = {}
+    for base, symbol in client.symbols.items():
+        ts = timestamps.get(base, [])
+        try:
+            events = _fetch_funding_events(ex, symbol, ts[0] if ts else None)
+        except Exception as exc:  # noqa: BLE001 - degrade to no funding
+            log.warning("[%s] funding history unavailable: %s", symbol, exc)
+            events = []
+        schedule[base] = align_funding(ts, events)
+    return schedule
+
+
+def _fetch_funding_events(ex, symbol: str, since_ms: int | None
+                          ) -> List[tuple[int, float]]:
+    if since_ms is None:
+        return []
+    out: list = []
+    since = since_ms
+    while True:
+        batch = ex.fetch_funding_rate_history(symbol, since=since, limit=1000)
+        if not batch:
+            break
+        out += batch
+        since = batch[-1]["timestamp"] + 1
+        if len(batch) < 1000:
+            break
+    return [(e["timestamp"], e["fundingRate"]) for e in out
+            if e.get("fundingRate") is not None]
 
 
 def load_history(config: Config, bars: int,
@@ -121,19 +189,34 @@ def load_history(config: Config, bars: int,
     return fetch_history(config, bars)
 
 
+def load_market(config: Config, bars: int, seed: int | None = None
+                ) -> tuple[Dict[str, List[float]], Dict[str, List[float]] | None]:
+    """Load closes and, for exchange data, a real per-bar funding schedule.
+
+    Returns ``(closes, funding_schedule)``. ``funding_schedule`` is ``None`` for
+    the simulated source (which has no real funding — the flat model is used).
+    """
+    if config.market.source == "simulated":
+        return generate_sim_history(config, bars, seed=seed), None
+    closes, times = _fetch_ohlcv(config, bars)
+    return closes, build_funding_schedule(config, times)
+
+
 # ---------------------------------------------------------------------------
 # Backtest run + metrics
 # ---------------------------------------------------------------------------
 def run_backtest(config: Config, history: Dict[str, List[float]],
                  fee_rate: float | None = None,
                  slippage_rate: float | None = None,
-                 funding_rate: float | None = None) -> dict:
+                 funding_rate: float | None = None,
+                 funding_schedule: Dict[str, List[float]] | None = None) -> dict:
     """Replay ``history`` through the engine and return metrics + equity curve.
 
     Works on a copy of ``config`` with the daily-loss kill switch disabled so
     the run measures the strategy and its exits over the full period. Taker
     fees, slippage, and perpetual funding are modeled (defaults from
-    ``config.backtest``).
+    ``config.backtest``). When ``funding_schedule`` is given (real per-bar,
+    per-symbol historical rates), it overrides the flat ``funding_rate``.
     """
     cfg = copy.deepcopy(config)
     cfg.risk.max_daily_loss_pct = 1.0            # disable daily halt for replay
@@ -162,7 +245,8 @@ def run_backtest(config: Config, history: Dict[str, List[float]],
     replay = ReplayExchange({b: history[b][:length] for b in bases})
     engine = TradingEngine(cfg, replay, state)      # thread never started
 
-    # Funding is charged every N bars, derived from the interval and timeframe.
+    use_real_funding = funding_schedule is not None
+    # Flat model: funding is charged every N bars from the interval + timeframe.
     tf_minutes = _TIMEFRAME_MINUTES.get(cfg.market.timeframe, 1)
     funding_bars = max(1, round(cfg.backtest.funding_interval_hours * 60
                                 / tf_minutes))
@@ -171,7 +255,15 @@ def run_backtest(config: Config, history: Dict[str, List[float]],
     for step, idx in enumerate(range(start, length + 1)):
         replay.set_index(idx)
         engine.tick()
-        if funding_rate and step > 0 and step % funding_bars == 0:
+        if use_real_funding:
+            bar = idx - 1
+            rates = {b: funding_schedule[b][bar]
+                     for b in bases
+                     if bar < len(funding_schedule.get(b, [])) and
+                     funding_schedule[b][bar]}
+            if rates:
+                state.apply_funding(rates)
+        elif funding_rate and step > 0 and step % funding_bars == 0:
             state.apply_funding(funding_rate)
 
     # Close any positions still open at the final bar so P&L is fully realized.
@@ -190,6 +282,7 @@ def run_backtest(config: Config, history: Dict[str, List[float]],
     metrics["fee_rate"] = fee_rate
     metrics["slippage_rate"] = slippage_rate
     metrics["funding_rate"] = funding_rate
+    metrics["funding_source"] = "historical" if use_real_funding else "flat"
     metrics["equity_curve"] = _downsample([e for _, e in state.equity_curve], 300)
     return metrics
 
@@ -254,7 +347,9 @@ def _metrics(state: PortfolioState, timeframe: str) -> dict:
 def compare_strategies(config: Config, history: Dict[str, List[float]],
                        fee_rate: float | None = None,
                        slippage_rate: float | None = None,
-                       funding_rate: float | None = None) -> List[dict]:
+                       funding_rate: float | None = None,
+                       funding_schedule: Dict[str, List[float]] | None = None
+                       ) -> List[dict]:
     """Backtest every registered strategy on the same history; rank by return."""
     results = []
     for name in REGISTRY:
@@ -263,7 +358,8 @@ def compare_strategies(config: Config, history: Dict[str, List[float]],
         cfg.strategy.params = {}
         try:
             m = run_backtest(cfg, history, fee_rate=fee_rate,
-                             slippage_rate=slippage_rate, funding_rate=funding_rate)
+                             slippage_rate=slippage_rate, funding_rate=funding_rate,
+                             funding_schedule=funding_schedule)
             m["label"] = REGISTRY[name].label
             results.append(m)
         except Exception as exc:  # noqa: BLE001 - keep comparing the rest
@@ -292,7 +388,8 @@ def walk_forward(config: Config, history: Dict[str, List[float]],
                  folds: int = 4, objective: str = "profit_factor",
                  fee_rate: float | None = None,
                  slippage_rate: float | None = None,
-                 funding_rate: float | None = None) -> dict:
+                 funding_rate: float | None = None,
+                 funding_schedule: Dict[str, List[float]] | None = None) -> dict:
     """Rolling walk-forward: pick the best in-sample strategy, test out-of-sample.
 
     The history is split into ``folds + 1`` equal segments. For each fold the
@@ -318,15 +415,21 @@ def walk_forward(config: Config, history: Dict[str, List[float]],
     for i in range(folds):
         train = _slice_history(history, i * seg, (i + 1) * seg)
         test = _slice_history(history, (i + 1) * seg, (i + 2) * seg)
+        train_fund = (_slice_history(funding_schedule, i * seg, (i + 1) * seg)
+                      if funding_schedule else None)
+        test_fund = (_slice_history(funding_schedule, (i + 1) * seg, (i + 2) * seg)
+                     if funding_schedule else None)
         ranked = compare_strategies(config, train, fee_rate=fee_rate,
                                     slippage_rate=slippage_rate,
-                                    funding_rate=funding_rate)
+                                    funding_rate=funding_rate,
+                                    funding_schedule=train_fund)
         winner = max(ranked, key=score)
         cfg = copy.deepcopy(config)
         cfg.strategy.name = winner["strategy"]
         cfg.strategy.params = {}
         oos = run_backtest(cfg, test, fee_rate=fee_rate,
-                           slippage_rate=slippage_rate, funding_rate=funding_rate)
+                           slippage_rate=slippage_rate, funding_rate=funding_rate,
+                           funding_schedule=test_fund)
         compound *= 1 + oos["total_return_pct"] / 100
         rows.append({
             "fold": i + 1,

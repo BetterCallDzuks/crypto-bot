@@ -198,23 +198,29 @@ class PortfolioState:
             self.last_update = _iso(_now())
             return pnl
 
-    def apply_funding(self, funding_rate: float) -> None:
+    def apply_funding(self, funding_rate) -> None:
         """Charge one funding interval on every open position.
 
         On perpetual futures, when the funding rate is positive longs pay
         shorts (and vice versa). The payment is ``rate`` of the position's
         current notional; it's a realized cash flow, so it hits the balance and
         realized P&L just like a fee.
+
+        ``funding_rate`` is either a single float applied to every symbol, or a
+        ``{base: rate}`` mapping for real per-symbol historical rates.
         """
-        if funding_rate == 0:
-            return
+        per_symbol = isinstance(funding_rate, dict)
         with self._lock:
             for st in self.symbols.values():
                 pos = st.position
                 if pos is None or not st.last_price:
                     continue
+                rate = funding_rate.get(st.base, 0.0) if per_symbol \
+                    else funding_rate
+                if not rate:
+                    continue
                 notional = pos.quantity * st.last_price
-                payment = pos.direction * notional * funding_rate
+                payment = pos.direction * notional * rate
                 self.quote_balance -= payment
                 self.realized_pnl -= payment
                 st.realized_pnl -= payment

@@ -133,7 +133,7 @@ def create_app(config: Config, state: PortfolioState,
     def api_backtest():
         import copy as _copy
 
-        from ..backtest import load_history, run_backtest
+        from ..backtest import load_market, run_backtest
         body = request.get_json(silent=True) or {}
         bars = max(200, min(int(body.get("bars", 1500)), 5000))
         fee, slip, fund = _cost_params(body, config)
@@ -143,9 +143,9 @@ def create_app(config: Config, state: PortfolioState,
             cfg.strategy.params = {}
         try:
             cfg.validate()
-            history = load_history(cfg, bars)
+            history, funding = load_market(cfg, bars)
             result = run_backtest(cfg, history, fee_rate=fee, slippage_rate=slip,
-                                  funding_rate=fund)
+                                  funding_rate=fund, funding_schedule=funding)
         except Exception as exc:  # noqa: BLE001 - reported to the client
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True, "result": result,
@@ -153,14 +153,15 @@ def create_app(config: Config, state: PortfolioState,
 
     @app.route("/api/backtest/compare", methods=["POST"])
     def api_backtest_compare():
-        from ..backtest import compare_strategies, load_history
+        from ..backtest import compare_strategies, load_market
         body = request.get_json(silent=True) or {}
         bars = max(200, min(int(body.get("bars", 1500)), 5000))
         fee, slip, fund = _cost_params(body, config)
         try:
-            history = load_history(config, bars)
+            history, funding = load_market(config, bars)
             results = compare_strategies(config, history, fee_rate=fee,
-                                         slippage_rate=slip, funding_rate=fund)
+                                         slippage_rate=slip, funding_rate=fund,
+                                         funding_schedule=funding)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True, "results": results,
@@ -168,17 +169,18 @@ def create_app(config: Config, state: PortfolioState,
 
     @app.route("/api/backtest/walkforward", methods=["POST"])
     def api_backtest_walkforward():
-        from ..backtest import load_history, walk_forward
+        from ..backtest import load_market, walk_forward
         body = request.get_json(silent=True) or {}
         bars = max(200, min(int(body.get("bars", 3000)), 5000))
         folds = max(1, min(int(body.get("folds", 4)), 10))
         objective = str(body.get("objective", "profit_factor"))
         fee, slip, fund = _cost_params(body, config)
         try:
-            history = load_history(config, bars)
+            history, funding = load_market(config, bars)
             result = walk_forward(config, history, folds=folds,
                                   objective=objective, fee_rate=fee,
-                                  slippage_rate=slip, funding_rate=fund)
+                                  slippage_rate=slip, funding_rate=fund,
+                                  funding_schedule=funding)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True, **result, "source": config.market.source})

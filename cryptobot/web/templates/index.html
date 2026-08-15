@@ -174,7 +174,8 @@
         <div class="field"><label for="btSlip">Slippage %</label>
           <input type="number" id="btSlip" value="0.05" min="0" step="0.01" style="width:90px"></div>
         <div class="field"><label for="btFund">Funding %/8h</label>
-          <input type="number" id="btFund" value="0.01" step="0.01" style="width:90px"></div>
+          <input type="number" id="btFund" value="0.01" step="0.01" style="width:90px">
+          <span class="hint">simulated only; real data uses live funding</span></div>
         <button class="primary" onclick="runBacktest()">Run backtest</button>
         <button onclick="compareBacktest()">Compare all strategies</button>
         <span id="btMsg" class="sub"></span>
@@ -588,7 +589,8 @@ async function runBacktest() {
 function renderBacktest(m) {
   document.getElementById("btResultCard").classList.remove("hidden");
   document.getElementById("btResultName").textContent =
-    `${STRATS[m.strategy] ? STRATS[m.strategy].label : m.strategy} · ${m.bars} bars · ${m.leverage}x`;
+    `${STRATS[m.strategy] ? STRATS[m.strategy].label : m.strategy} · ${m.bars} bars`
+    + ` · ${m.leverage}x · funding: ${m.funding_source}`;
   const cards = [
     ["Total return", `${sign(m.total_return_pct)}%`, cls(m.total_return_pct)],
     ["Max drawdown", `${fmt(m.max_drawdown_pct)}%`, "down"],
