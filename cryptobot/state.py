@@ -107,6 +107,7 @@ class PortfolioState:
         self.equity_curve: Deque[tuple[str, float]] = deque(maxlen=500)
 
         self.trading_halted = False
+        self.strategy_name = ""
         self.status = "starting"
         self.last_update: str = _iso(_now())
         self.last_error: Optional[str] = None
@@ -185,6 +186,10 @@ class PortfolioState:
         with self._lock:
             self.trading_halted = halted
 
+    def set_strategy(self, name: str) -> None:
+        with self._lock:
+            self.strategy_name = name
+
     def update_meta(self, quote_currency: str, futures: bool,
                     leverage: int) -> None:
         """Reflect settings changes (quote/leverage) applied at runtime."""
@@ -231,6 +236,7 @@ class PortfolioState:
                 "dry_run": self.dry_run,
                 "futures": self.futures,
                 "leverage": self.leverage,
+                "strategy": self.strategy_name,
                 "trading_halted": self.trading_halted,
                 "quote_currency": self.quote_currency,
                 "starting_equity": self.starting_equity,

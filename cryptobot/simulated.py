@@ -28,7 +28,9 @@ class _Series:
         self._rng = rng
         self._price = price
         self.closes = [price]
-        for _ in range(60):
+        # Seed enough history that any strategy (incl. the confluence ensemble)
+        # is warm on the first tick.
+        for _ in range(250):
             self.step()
 
     def step(self) -> float:
