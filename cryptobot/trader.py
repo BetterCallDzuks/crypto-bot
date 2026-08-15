@@ -1,18 +1,15 @@
-"""The trading engine.
+"""The multi-symbol trading engine.
 
-Runs a loop on a background thread:
+Each poll, the engine walks every configured asset:
 
-    1. Pull recent closing prices.
-    2. Check risk exits (liquidation / stop-loss / take-profit) on any position.
-    3. Ask the strategy for a signal and act on it, subject to risk limits.
-    4. Update shared state and sleep until the next poll.
+    1. Pull recent closing prices for the asset.
+    2. Check risk exits (liquidation / stop-loss / take-profit) on its position.
+    3. Ask the strategy for a signal and act, subject to portfolio risk limits.
 
-Directionality depends on config:
-  * Futures (allow_short): BUY goes/flips long, SELL goes/flips short.
-  * Spot / long-only:      BUY opens long, SELL closes it (never shorts).
-
-Every order funnels through the exchange client, whose dry-run gate decides
-whether it is real, and every decision funnels through the risk module.
+The daily-loss kill switch and position sizing are portfolio-level: they use
+the shared quote balance and total equity across all assets. Strategy, risk,
+leverage, and directionality are read from config and can be reloaded at
+runtime when the dashboard's settings page saves changes.
 """
 
 from __future__ import annotations
@@ -30,33 +27,56 @@ from .risk import (
     should_stop_loss,
     should_take_profit,
 )
-from .state import BotState
+from .state import PortfolioState
 from .strategy import Signal, build_strategy
 
 log = logging.getLogger("cryptobot.trader")
 
 
 class TradingEngine:
-    def __init__(self, config: Config, exchange, state: BotState) -> None:
+    def __init__(self, config: Config, exchange, state: PortfolioState) -> None:
         self.config = config
         self.exchange = exchange
         self.state = state
-        self.strategy = build_strategy(
-            config.strategy.name,
-            fast_period=config.strategy.fast_period,
-            slow_period=config.strategy.slow_period,
-        )
-        self.limits = RiskLimits(
-            position_size_pct=config.risk.position_size_pct,
-            stop_loss_pct=config.risk.stop_loss_pct,
-            take_profit_pct=config.risk.take_profit_pct,
-            max_daily_loss_pct=config.risk.max_daily_loss_pct,
-        )
-        self.futures = config.futures.enabled
-        self.allow_short = config.futures.enabled and config.futures.allow_short
-        self.leverage = config.futures.leverage if config.futures.enabled else 1
+        self.bases = list(state.symbols.keys())
+        self._settings_lock = threading.Lock()
+        self.reload_from_config()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+
+    # -- runtime settings --------------------------------------------------
+    def reload_from_config(self) -> None:
+        """(Re)build strategy and risk parameters from the current config.
+
+        Called on startup and whenever the settings page saves. Changes to
+        strategy/risk/leverage/direction take effect on the next poll; the set
+        of traded symbols and the quote currency require a restart.
+        """
+        c = self.config
+        with self._settings_lock:
+            self.strategy = build_strategy(
+                c.strategy.name,
+                fast_period=c.strategy.fast_period,
+                slow_period=c.strategy.slow_period,
+            )
+            self.limits = RiskLimits(
+                position_size_pct=c.risk.position_size_pct,
+                stop_loss_pct=c.risk.stop_loss_pct,
+                take_profit_pct=c.risk.take_profit_pct,
+                max_daily_loss_pct=c.risk.max_daily_loss_pct,
+            )
+            self.futures = c.futures.enabled
+            self.allow_short = c.futures.enabled and c.futures.allow_short
+            self.leverage = c.futures.leverage if c.futures.enabled else 1
+        log.info("Settings (re)loaded: %s, %dx leverage, size %.0f%%, "
+                 "stop %.1f%% / tp %.1f%%",
+                 self.strategy.__class__.__name__, self.leverage,
+                 self.limits.position_size_pct * 100,
+                 self.limits.stop_loss_pct * 100, self.limits.take_profit_pct * 100)
+
+    def _settings(self):
+        with self._settings_lock:
+            return (self.strategy, self.limits, self.leverage, self.allow_short)
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -77,8 +97,8 @@ class TradingEngine:
     def _run(self) -> None:
         mode = "DRY-RUN (paper)" if self.config.trading.dry_run else "LIVE"
         kind = f"futures {self.leverage}x" if self.futures else "spot"
-        log.info("Trading engine started in %s mode — %s on %s",
-                 mode, kind, self.config.market.symbol)
+        log.info("Engine started in %s mode — %s, %d symbols: %s",
+                 mode, kind, len(self.bases), ", ".join(self.bases))
         self.state.set_status(f"running ({mode}, {kind})")
         while not self._stop.is_set():
             try:
@@ -88,86 +108,93 @@ class TradingEngine:
                 self.state.set_status("error", error=str(exc))
             self._stop.wait(self.config.trading.poll_interval)
 
-    # -- one iteration (also the unit-testable seam) ----------------------
+    # -- one iteration (the unit-testable seam) ---------------------------
     def tick(self) -> None:
-        closes = self.exchange.fetch_closes(limit=self.strategy.warmup + 5)
-        if not closes:
-            return
-        price = closes[-1]
-        self.state.set_price(price)
+        strategy, limits, leverage, allow_short = self._settings()
 
-        # 1. Risk exits take priority over any new strategy signal.
-        if self.state.position is not None and self._check_exits(price):
-            return
-
-        # 2. Daily loss guard: block new entries once tripped.
+        # Portfolio-level daily-loss guard, evaluated once per poll.
         halted = daily_loss_limit_hit(
-            self.state.starting_equity, self.state.equity(price), self.limits
+            self.state.starting_equity, self.state.equity(), limits
         )
         self.state.set_halted(halted)
 
-        # 3. Strategy signal -> directional action.
-        signal = self.strategy.evaluate(closes)
+        for base in self.bases:
+            self._process(base, strategy, limits, leverage, allow_short, halted)
+
+        self.state.record_equity_point()
+
+    def _process(self, base, strategy, limits, leverage, allow_short, halted):
+        closes = self.exchange.fetch_closes(base, limit=strategy.warmup + 5)
+        if not closes:
+            return
+        price = closes[-1]
+        self.state.set_price(base, price)
+
+        pos = self.state.symbols[base].position
+        if pos is not None and self._check_exits(base, pos, price, limits):
+            return
+
+        signal = strategy.evaluate(closes)
         if signal is Signal.BUY:
-            self._go_long(price, halted)
+            self._go_long(base, price, leverage, limits, halted)
         elif signal is Signal.SELL:
-            self._go_short_or_flat(price, halted)
+            self._go_short_or_flat(base, price, leverage, limits,
+                                   allow_short, halted)
 
     # -- exits -------------------------------------------------------------
-    def _check_exits(self, price: float) -> bool:
-        pos = self.state.position
-        assert pos is not None
+    def _check_exits(self, base, pos, price, limits) -> bool:
         if should_liquidate(pos.side, pos.entry_price, price, pos.leverage):
-            self._close(price, reason="liquidation")
+            self._close(base, price, "liquidation")
             return True
-        if should_stop_loss(pos.side, pos.entry_price, price, self.limits):
-            self._close(price, reason="stop_loss")
+        if should_stop_loss(pos.side, pos.entry_price, price, limits):
+            self._close(base, price, "stop_loss")
             return True
-        if should_take_profit(pos.side, pos.entry_price, price, self.limits):
-            self._close(price, reason="take_profit")
+        if should_take_profit(pos.side, pos.entry_price, price, limits):
+            self._close(base, price, "take_profit")
             return True
         return False
 
     # -- directional actions ----------------------------------------------
-    def _go_long(self, price: float, halted: bool) -> None:
-        pos = self.state.position
+    def _go_long(self, base, price, leverage, limits, halted):
+        pos = self.state.symbols[base].position
         if pos is not None and pos.side == "long":
-            return                                  # already long, hold
+            return
         if pos is not None and pos.side == "short":
-            self._close(price, reason="flip")       # close short before flip
+            self._close(base, price, "flip")
         if not halted:
-            self._open("long", price)
+            self._open(base, "long", price, leverage, limits)
 
-    def _go_short_or_flat(self, price: float, halted: bool) -> None:
-        pos = self.state.position
+    def _go_short_or_flat(self, base, price, leverage, limits, allow_short, halted):
+        pos = self.state.symbols[base].position
         if pos is not None and pos.side == "short":
-            return                                  # already short, hold
+            return
         if pos is not None and pos.side == "long":
-            self._close(price, reason="signal")     # close the long
-        if self.allow_short and not halted:
-            self._open("short", price)              # and flip short (futures)
+            self._close(base, price, "signal")
+        if allow_short and not halted:
+            self._open(base, "short", price, leverage, limits)
 
     # -- order helpers -----------------------------------------------------
-    def _open(self, side: str, price: float) -> None:
+    def _open(self, base, side, price, leverage, limits):
         balance = self.state.quote_balance
-        qty = position_quantity(balance, price, self.leverage, self.limits)
+        qty = position_quantity(balance, price, leverage, limits)
         if qty <= 0:
             return
-        margin = margin_to_use(balance, self.limits)
+        margin = margin_to_use(balance, limits)
         order_side = "buy" if side == "long" else "sell"
-        self.exchange.create_order(order_side, qty, price, reduce_only=False)
-        self.state.open_position(side, qty, price, margin, self.leverage,
+        self.exchange.create_order(base, order_side, qty, price,
+                                   reduce_only=False)
+        self.state.open_position(base, side, qty, price, margin, leverage,
                                  reason="signal")
-        log.info("OPEN %s %.8f @ %.2f (%dx, margin=%.2f)",
-                 side.upper(), qty, price, self.leverage, margin)
+        log.info("[%s] OPEN %s %.6f @ %.4f (%dx, margin=%.2f)",
+                 base, side.upper(), qty, price, leverage, margin)
 
-    def _close(self, price: float, reason: str) -> None:
-        pos = self.state.position
+    def _close(self, base, price, reason):
+        pos = self.state.symbols[base].position
         if pos is None:
             return
         order_side = "sell" if pos.side == "long" else "buy"
-        self.exchange.create_order(order_side, pos.quantity, price,
+        self.exchange.create_order(base, order_side, pos.quantity, price,
                                    reduce_only=True)
-        pnl = self.state.close_position(price, reason=reason)
-        log.info("CLOSE %s %.8f @ %.2f (%s) pnl=%.2f",
-                 pos.side.upper(), pos.quantity, price, reason, pnl)
+        pnl = self.state.close_position(base, price, reason=reason)
+        log.info("[%s] CLOSE %s %.6f @ %.4f (%s) pnl=%.2f",
+                 base, pos.side.upper(), pos.quantity, price, reason, pnl)

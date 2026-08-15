@@ -5,59 +5,60 @@
 # simulated locally against live market prices (paper trading). Live trading
 # is only enabled when you BOTH set `dry_run: false` AND provide valid API
 # keys via the .env file. Read the README before going live.
+#
+# Most of these values can also be changed live from the dashboard's Settings
+# page (which writes them back here). Changing the symbol list or quote
+# currency requires a restart (e.g. `pm2 restart crypto-bot`).
 # ============================================================================
 
 exchange:
-  # Any exchange id supported by ccxt (e.g. binance, coinbase, kraken, bybit).
   id: binance
-  # Use the exchange's sandbox/testnet endpoints when available. Strongly
-  # recommended while you validate your setup, even with dry_run off.
+  # Use the exchange's testnet while validating. Recommended even once live.
   sandbox: true
 
 market:
-  # "simulated" runs an offline random-walk market — no network or API keys
-  # needed, great for trying the bot and watching the dashboard. Switch to
-  # "exchange" to use real ccxt market data from the exchange above.
+  # "simulated" runs an offline random-walk market for every symbol — no
+  # network or API keys needed. Switch to "exchange" for real Binance data.
   source: simulated
-  # For FUTURES on a live exchange, use the perpetual-swap symbol form with a
-  # settlement suffix, e.g. BTC/USDT:USDT. For spot, use plain BTC/USDT.
-  symbol: BTC/USDT:USDT
-  timeframe: 1m         # candle size used by the strategy
-  quote_currency: USDT  # currency your balance / P&L is measured in
+  # Margin/quote asset. In Croatia/EEA, USDT is unavailable — use USDC or
+  # BNFCR (Binance's EEA settlement asset). The ccxt market symbol is derived
+  # as BASE/QUOTE:QUOTE for perpetual futures, e.g. BTC/USDC:USDC.
+  quote_currency: USDC
+  timeframe: 1m
+  # Base assets to trade. Add/remove freely; each trades independently.
+  symbols:
+    - BTC
+    - ETH
+    - XRP
+    - SOL
+    - DOGE
+    - BNB
+    - ADA
 
 futures:
-  # Trade leveraged perpetual futures (can go long AND short). Set enabled:
-  # false to trade spot instead (long-only, no leverage).
   enabled: true
   leverage: 5           # e.g. 5x — a ~20% adverse move liquidates the position
   margin_mode: isolated # "isolated" caps risk to a position's margin; "cross"
   allow_short: true     # flip to a short position on a bearish crossover
 
 trading:
-  # Master safety switch. Keep true until you have tested thoroughly.
-  dry_run: true
-  # Seconds between strategy evaluations (one poll of the market per loop).
-  poll_interval: 30
-  # Starting balance used for the simulated portfolio in dry_run mode.
+  dry_run: true               # master safety switch
+  poll_interval: 30           # seconds between strategy evaluations
   paper_starting_balance: 10000.0
 
 strategy:
-  # Built-in strategy: simple moving-average crossover.
   name: sma_crossover
   fast_period: 9
   slow_period: 21
 
 risk:
-  # Fraction of available quote balance to deploy per position (0.25 = 25%).
-  position_size_pct: 0.25
-  # Sell if price falls this fraction below entry (0.02 = 2% stop-loss).
-  stop_loss_pct: 0.02
-  # Sell if price rises this fraction above entry (0.04 = 4% take-profit).
-  take_profit_pct: 0.04
-  # Halt all new entries once cumulative loss for the day hits this fraction
-  # of starting equity (0.05 = 5%). A core capital-preservation guardrail.
-  max_daily_loss_pct: 0.05
+  # Fraction of the shared balance posted as margin per NEW position. With
+  # several symbols trading at once, keep this modest so the basket fits.
+  position_size_pct: 0.15
+  stop_loss_pct: 0.02         # exit when price moves 2% against the position
+  take_profit_pct: 0.04       # exit when price moves 4% in favor
+  max_daily_loss_pct: 0.05    # halt new entries after a 5% daily drawdown
 
 web:
   host: 127.0.0.1
-  port: 5000
+  port: 4000

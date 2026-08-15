@@ -17,7 +17,7 @@ import sys
 
 from cryptobot.config import load_config
 from cryptobot.exchange import ExchangeClient
-from cryptobot.state import BotState
+from cryptobot.state import PortfolioState
 from cryptobot.trader import TradingEngine
 from cryptobot.web.app import create_app
 
@@ -35,14 +35,18 @@ def main() -> int:
         log.error("Configuration error: %s", exc)
         return 1
 
+    bases = list(config.market.symbols)
+    symbols = {b: config.market_symbol(b) for b in bases}
+
     if not config.trading.dry_run:
         kind = (f"FUTURES {config.futures.leverage}x {config.futures.margin_mode}"
                 if config.futures.enabled else "SPOT")
         log.warning("=" * 68)
         log.warning("LIVE TRADING IS ENABLED — real orders with real funds.")
-        log.warning("Mode: %s   Exchange: %s  sandbox=%s  symbol=%s",
-                    kind, config.exchange.id, config.exchange.sandbox,
-                    config.market.symbol)
+        log.warning("Mode: %s   Exchange: %s  sandbox=%s",
+                    kind, config.exchange.id, config.exchange.sandbox)
+        log.warning("Quote: %s   Symbols: %s",
+                    config.market.quote_currency, ", ".join(symbols.values()))
         if config.futures.enabled:
             log.warning("Leverage amplifies losses; positions can be LIQUIDATED.")
         log.warning("=" * 68)
@@ -58,7 +62,9 @@ def main() -> int:
         log.error("Failed to initialize exchange: %s", exc)
         return 1
 
-    state = BotState(
+    state = PortfolioState(
+        bases=bases,
+        symbols=symbols,
         starting_balance=config.trading.paper_starting_balance,
         quote_currency=config.market.quote_currency,
         dry_run=config.trading.dry_run,
@@ -68,11 +74,13 @@ def main() -> int:
     engine = TradingEngine(config, exchange, state)
     engine.start()
 
-    app = create_app(state, engine)
-    log.info("Dashboard: http://%s:%d", config.web.host, config.web.port)
+    app = create_app(config, state, engine)
+    log.info("Dashboard: http://%s:%d  (%d symbols, quote %s)",
+             config.web.host, config.web.port, len(bases),
+             config.market.quote_currency)
     try:
         app.run(host=config.web.host, port=config.web.port,
-                debug=False, use_reloader=False)
+                debug=False, use_reloader=False, threaded=True)
     finally:
         engine.stop()
     return 0

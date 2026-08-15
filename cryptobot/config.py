@@ -1,22 +1,26 @@
-"""Configuration loading and validation.
+"""Configuration loading, validation, runtime updates, and persistence.
 
 Config comes from two places:
-  * ``config.yaml`` — non-secret settings (exchange, strategy, risk limits).
+  * ``config.yaml`` — non-secret settings (markets, strategy, risk limits).
   * ``.env``        — secrets (API keys), loaded into the environment.
 
-Splitting them keeps credentials out of version control while allowing the
-rest of the configuration to be committed and reviewed.
+Splitting them keeps credentials out of version control. The settings page in
+the dashboard edits the non-secret config at runtime and saves it back to
+``config.yaml`` (secrets are never written).
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 from dotenv import load_dotenv
+
+# Default basket of large-cap assets. Quote currency is applied separately.
+DEFAULT_SYMBOLS = ["BTC", "ETH", "XRP", "SOL", "DOGE", "BNB", "ADA"]
 
 
 @dataclass
@@ -30,11 +34,15 @@ class ExchangeConfig:
 
 @dataclass
 class MarketConfig:
-    symbol: str = "BTC/USDT"
-    timeframe: str = "1m"
-    quote_currency: str = "USDT"
     # "exchange" = live ccxt market data; "simulated" = offline random walk.
     source: str = "exchange"
+    # Margin/quote asset. In Croatia/EEA, USDT is unavailable — use USDC or
+    # BNFCR (Binance's EEA settlement asset).
+    quote_currency: str = "USDC"
+    timeframe: str = "1m"
+    # Base assets to trade. The ccxt market symbol is derived from the quote
+    # currency (e.g. BTC + USDC -> "BTC/USDC:USDC" for a perpetual).
+    symbols: list[str] = field(default_factory=lambda: list(DEFAULT_SYMBOLS))
 
 
 @dataclass
@@ -53,7 +61,7 @@ class StrategyConfig:
 
 @dataclass
 class RiskConfig:
-    position_size_pct: float = 0.25
+    position_size_pct: float = 0.15
     stop_loss_pct: float = 0.02
     take_profit_pct: float = 0.04
     max_daily_loss_pct: float = 0.05
@@ -61,8 +69,6 @@ class RiskConfig:
 
 @dataclass
 class FuturesConfig:
-    # When enabled, the bot trades perpetual futures (leveraged, can short).
-    # When disabled, it trades spot (long-only) — equivalent to 1x, no short.
     enabled: bool = True
     leverage: int = 5
     margin_mode: str = "isolated"   # "isolated" | "cross"
@@ -72,7 +78,7 @@ class FuturesConfig:
 @dataclass
 class WebConfig:
     host: str = "127.0.0.1"
-    port: int = 5000
+    port: int = 4000
 
 
 @dataclass
@@ -85,6 +91,20 @@ class Config:
     futures: FuturesConfig = field(default_factory=FuturesConfig)
     web: WebConfig = field(default_factory=WebConfig)
 
+    # -- derived helpers ---------------------------------------------------
+    def market_symbol(self, base: str) -> str:
+        """Build the ccxt market symbol for a base asset.
+
+        Futures perpetuals use the settled form ``BASE/QUOTE:QUOTE``; spot uses
+        ``BASE/QUOTE``. If the caller already passed a full symbol (contains a
+        '/'), it is used verbatim so power users can override the mapping.
+        """
+        if "/" in base:
+            return base
+        q = self.market.quote_currency
+        return f"{base}/{q}:{q}" if self.futures.enabled else f"{base}/{q}"
+
+    # -- validation --------------------------------------------------------
     def validate(self) -> None:
         """Fail fast on nonsensical or unsafe configuration."""
         s = self.strategy
@@ -105,14 +125,17 @@ class Config:
         if self.trading.poll_interval < 1:
             raise ValueError("trading.poll_interval must be >= 1 second")
 
+        if not self.market.symbols:
+            raise ValueError("market.symbols must list at least one asset")
+        if not self.market.quote_currency:
+            raise ValueError("market.quote_currency must be set")
+
         if self.market.source not in ("exchange", "simulated"):
             raise ValueError(
                 "market.source must be 'exchange' or 'simulated', got "
                 f"'{self.market.source}'"
             )
 
-        # A simulated market can never place real orders, so live trading
-        # against it is a configuration mistake — catch it early.
         if self.market.source == "simulated" and not self.trading.dry_run:
             raise ValueError(
                 "market.source: simulated cannot be used with "
@@ -139,6 +162,89 @@ class Config:
                 "EXCHANGE_API_SECRET in your .env file, or set dry_run: true."
             )
 
+    # -- runtime-editable settings (the dashboard settings page) ----------
+    # Only these fields are exposed for live editing; secrets and plumbing are
+    # deliberately excluded.
+    def editable_settings(self) -> dict[str, Any]:
+        return {
+            "market": {
+                "quote_currency": self.market.quote_currency,
+                "timeframe": self.market.timeframe,
+                "symbols": list(self.market.symbols),
+            },
+            "trading": {
+                "dry_run": self.trading.dry_run,
+                "poll_interval": self.trading.poll_interval,
+            },
+            "strategy": {
+                "fast_period": self.strategy.fast_period,
+                "slow_period": self.strategy.slow_period,
+            },
+            "risk": {
+                "position_size_pct": self.risk.position_size_pct,
+                "stop_loss_pct": self.risk.stop_loss_pct,
+                "take_profit_pct": self.risk.take_profit_pct,
+                "max_daily_loss_pct": self.risk.max_daily_loss_pct,
+            },
+            "futures": {
+                "enabled": self.futures.enabled,
+                "leverage": self.futures.leverage,
+                "margin_mode": self.futures.margin_mode,
+                "allow_short": self.futures.allow_short,
+            },
+        }
+
+    def apply_updates(self, updates: dict[str, Any]) -> None:
+        """Apply a nested dict of edits to the editable fields, then validate.
+
+        Types are coerced to match the current attribute type. Unknown
+        sections/keys are ignored. The instance is left unchanged if validation
+        fails (caller should catch and report).
+        """
+        allowed = self.editable_settings()
+        targets = {
+            "market": self.market, "trading": self.trading,
+            "strategy": self.strategy, "risk": self.risk, "futures": self.futures,
+        }
+        # Work on a snapshot so a failed validate() doesn't half-apply.
+        staged: list[tuple[Any, str, Any]] = []
+        for section, fields in updates.items():
+            if section not in allowed or not isinstance(fields, dict):
+                continue
+            target = targets[section]
+            for key, new_value in fields.items():
+                if key not in allowed[section]:
+                    continue
+                current = getattr(target, key)
+                staged.append((target, key, _coerce(current, new_value)))
+
+        originals = [(t, k, getattr(t, k)) for t, k, _ in staged]
+        for target, key, value in staged:
+            setattr(target, key, value)
+        try:
+            self.validate()
+        except Exception:
+            for target, key, value in originals:  # roll back
+                setattr(target, key, value)
+            raise
+
+
+def _coerce(current: Any, new_value: Any) -> Any:
+    """Coerce ``new_value`` to the type of ``current``."""
+    if isinstance(current, bool):
+        if isinstance(new_value, str):
+            return new_value.strip().lower() in ("1", "true", "yes", "on")
+        return bool(new_value)
+    if isinstance(current, int):
+        return int(new_value)
+    if isinstance(current, float):
+        return float(new_value)
+    if isinstance(current, list):
+        if isinstance(new_value, str):
+            return [x.strip().upper() for x in new_value.split(",") if x.strip()]
+        return [str(x).strip().upper() for x in new_value]
+    return new_value
+
 
 def _section(data: dict[str, Any], key: str) -> dict[str, Any]:
     value = data.get(key) or {}
@@ -152,7 +258,6 @@ def load_config(
     env_path: str | os.PathLike[str] = ".env",
 ) -> Config:
     """Load configuration from YAML + environment, validate, and return it."""
-    # Load secrets into os.environ first (silently no-ops if .env is absent).
     load_dotenv(env_path)
 
     path = Path(config_path)
@@ -183,3 +288,22 @@ def load_config(
     )
     cfg.validate()
     return cfg
+
+
+def save_config(cfg: Config, config_path: str | os.PathLike[str] = "config.yaml"
+                ) -> None:
+    """Persist the non-secret config back to YAML (API keys are never written)."""
+    exchange = {k: v for k, v in asdict(cfg.exchange).items()
+                if k not in ("api_key", "api_secret", "api_password")}
+    data = {
+        "exchange": exchange,
+        "market": asdict(cfg.market),
+        "trading": asdict(cfg.trading),
+        "strategy": asdict(cfg.strategy),
+        "risk": asdict(cfg.risk),
+        "futures": asdict(cfg.futures),
+        "web": asdict(cfg.web),
+    }
+    Path(config_path).write_text(
+        yaml.safe_dump(data, sort_keys=False, default_flow_style=False)
+    )

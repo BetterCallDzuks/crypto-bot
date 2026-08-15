@@ -1,19 +1,18 @@
-"""In-memory bot state: portfolio, open position, and trade history.
+"""In-memory portfolio state for multi-symbol futures trading.
 
-Accounting uses a single margin model that covers spot and futures alike:
+One ``PortfolioState`` holds a shared quote-currency balance (free margin) and
+a ``SymbolState`` per traded asset. Accounting uses a single margin model that
+covers spot and futures alike:
 
     notional = quantity * entry_price
-    margin   = notional / leverage           (spot = 1x, so margin = notional)
-    pnl      = direction * (price - entry) * quantity   (long: +1, short: -1)
+    margin   = notional / leverage
+    pnl      = direction * (price - entry) * quantity   (long +1, short -1)
 
-Opening a position locks ``margin`` out of the free balance; closing it
-returns the margin plus realized P&L. Equity is always
-``free_balance + locked_margin + unrealized_pnl``. Spot long-only is just the
-leverage-1, always-long special case of the same equations.
+Opening locks margin out of the shared balance; closing returns it plus
+realized P&L. Equity = free balance + sum(locked margin + unrealized P&L).
 
-The state is shared between the trading engine (writer) and the web dashboard
-(reader). All mutation happens on the engine thread under a lock; the web
-layer only reads snapshots.
+All mutation happens on the engine thread under a lock; the web layer only
+reads ``snapshot()``.
 """
 
 from __future__ import annotations
@@ -22,22 +21,25 @@ import threading
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Deque, Optional
+from typing import Any, Deque, Dict, Optional
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso(dt: datetime) -> str:
+    return dt.isoformat(timespec="seconds")
 
 
 @dataclass
 class Position:
-    """An open position, long or short, possibly leveraged."""
     side: str               # "long" | "short"
     quantity: float
     entry_price: float
     leverage: int
-    margin: float           # collateral locked to hold this position
-    opened_at: str = field(default_factory=_now)
+    margin: float
+    opened_at: str = field(default_factory=lambda: _iso(_now()))
 
     @property
     def direction(self) -> int:
@@ -51,11 +53,6 @@ class Position:
         return self.direction * (price - self.entry_price) * self.quantity
 
     def liquidation_price(self) -> float:
-        """Isolated-margin liquidation price (ignores fees/maintenance margin).
-
-        The position is wiped when its loss equals the posted margin, i.e. a
-        1/leverage adverse move from entry.
-        """
         move = self.entry_price / self.leverage
         return self.entry_price - move if self.side == "long" \
             else self.entry_price + move
@@ -63,18 +60,32 @@ class Position:
 
 @dataclass
 class Trade:
-    """A completed fill, recorded for the dashboard's history table."""
-    action: str        # "open_long" | "close_long" | "open_short" | "close_short"
-    side: str          # order side sent to the exchange: "buy" | "sell"
+    base: str
+    action: str        # open_long | close_long | open_short | close_short
+    side: str          # exchange order side: buy | sell
     quantity: float
     price: float
-    reason: str        # signal / stop_loss / take_profit / liquidation / flip
-    pnl: float = 0.0   # realized P&L, populated on close
-    timestamp: str = field(default_factory=_now)
+    reason: str
+    pnl: float = 0.0
+    timestamp: str = field(default_factory=lambda: _iso(_now()))
 
 
-class BotState:
-    def __init__(self, starting_balance: float, quote_currency: str = "USDT",
+class SymbolState:
+    """Per-asset position, price history, and realized P&L."""
+
+    def __init__(self, base: str, symbol: str) -> None:
+        self.base = base
+        self.symbol = symbol
+        self.position: Optional[Position] = None
+        self.last_price: float = 0.0
+        self.realized_pnl: float = 0.0
+        self.trades_count: int = 0
+        self.price_history: Deque[tuple[str, float]] = deque(maxlen=240)
+
+
+class PortfolioState:
+    def __init__(self, bases: list[str], symbols: Dict[str, str],
+                 starting_balance: float, quote_currency: str = "USDC",
                  dry_run: bool = True, futures: bool = False,
                  leverage: int = 1) -> None:
         self._lock = threading.Lock()
@@ -84,100 +95,137 @@ class BotState:
         self.leverage = leverage
 
         self.starting_equity = starting_balance
-        self.quote_balance = starting_balance          # free collateral / cash
-        self.position: Optional[Position] = None
-        self.last_price: float = 0.0
+        self.quote_balance = starting_balance          # shared free margin
 
-        self.trades: Deque[Trade] = deque(maxlen=200)
+        self.symbols: Dict[str, SymbolState] = {
+            base: SymbolState(base, symbols[base]) for base in bases
+        }
+
+        self.trades: Deque[Trade] = deque(maxlen=300)   # recent, all symbols
         self.realized_pnl = 0.0
-        self.trading_halted = False                    # daily-loss kill switch
+        self.daily_pnl: Dict[str, float] = {}           # date -> realized P&L
+        self.equity_curve: Deque[tuple[str, float]] = deque(maxlen=500)
+
+        self.trading_halted = False
         self.status = "starting"
-        self.last_update: str = _now()
+        self.last_update: str = _iso(_now())
         self.last_error: Optional[str] = None
 
     # -- equity ------------------------------------------------------------
-    def equity(self, price: float | None = None) -> float:
-        """Total account value = free balance + locked margin + unrealized."""
-        price = price if price is not None else self.last_price
+    def _equity_locked(self) -> float:
         equity = self.quote_balance
-        if self.position is not None:
-            equity += self.position.margin
-            if price:
-                equity += self.position.unrealized_pnl(price)
+        for st in self.symbols.values():
+            if st.position is not None:
+                equity += st.position.margin
+                if st.last_price:
+                    equity += st.position.unrealized_pnl(st.last_price)
         return equity
 
+    def equity(self) -> float:
+        with self._lock:
+            return self._equity_locked()
+
     # -- mutation (engine thread) -----------------------------------------
-    def open_position(self, side: str, quantity: float, price: float,
+    def set_price(self, base: str, price: float) -> None:
+        with self._lock:
+            st = self.symbols[base]
+            st.last_price = price
+            st.price_history.append((_iso(_now()), price))
+            self.last_update = _iso(_now())
+
+    def open_position(self, base: str, side: str, quantity: float, price: float,
                       margin: float, leverage: int, reason: str) -> None:
         with self._lock:
+            st = self.symbols[base]
             self.quote_balance -= margin
-            self.position = Position(side=side, quantity=quantity,
-                                     entry_price=price, leverage=leverage,
-                                     margin=margin)
+            st.position = Position(side=side, quantity=quantity,
+                                   entry_price=price, leverage=leverage,
+                                   margin=margin)
+            st.trades_count += 1
             self.trades.appendleft(Trade(
-                action=f"open_{side}",
+                base=base, action=f"open_{side}",
                 side="buy" if side == "long" else "sell",
                 quantity=quantity, price=price, reason=reason))
-            self.last_update = _now()
+            self.last_update = _iso(_now())
 
-    def close_position(self, price: float, reason: str) -> float:
-        """Close the open position at ``price``. Returns realized P&L.
-
-        On liquidation the loss is capped at the posted margin (isolated
-        margin): you cannot lose more than the collateral behind the position.
-        """
+    def close_position(self, base: str, price: float, reason: str) -> float:
         with self._lock:
-            if self.position is None:
+            st = self.symbols[base]
+            if st.position is None:
                 return 0.0
-            pos = self.position
+            pos = st.position
             pnl = pos.unrealized_pnl(price)
             if reason == "liquidation":
-                pnl = -pos.margin      # margin fully lost, nothing returned
+                pnl = -pos.margin
             self.quote_balance += pos.margin + pnl
             self.realized_pnl += pnl
+            st.realized_pnl += pnl
+            st.trades_count += 1
+            day = _now().strftime("%Y-%m-%d")
+            self.daily_pnl[day] = self.daily_pnl.get(day, 0.0) + pnl
             self.trades.appendleft(Trade(
-                action=f"close_{pos.side}",
+                base=base, action=f"close_{pos.side}",
                 side="sell" if pos.side == "long" else "buy",
                 quantity=pos.quantity, price=price, reason=reason, pnl=pnl))
-            self.position = None
-            self.last_update = _now()
+            st.position = None
+            self.last_update = _iso(_now())
             return pnl
 
-    def set_price(self, price: float) -> None:
+    def record_equity_point(self) -> None:
         with self._lock:
-            self.last_price = price
-            self.last_update = _now()
+            self.equity_curve.append((_iso(_now()), self._equity_locked()))
 
     def set_status(self, status: str, error: str | None = None) -> None:
         with self._lock:
             self.status = status
             self.last_error = error
-            self.last_update = _now()
+            self.last_update = _iso(_now())
 
     def set_halted(self, halted: bool) -> None:
         with self._lock:
             self.trading_halted = halted
 
-    # -- snapshot (web thread) --------------------------------------------
-    def snapshot(self) -> dict[str, Any]:
-        """A JSON-serializable view of current state for the dashboard."""
+    def update_meta(self, quote_currency: str, futures: bool,
+                    leverage: int) -> None:
+        """Reflect settings changes (quote/leverage) applied at runtime."""
         with self._lock:
-            price = self.last_price
-            position = None
-            if self.position is not None:
-                p = self.position
-                position = {
-                    "side": p.side,
-                    "quantity": p.quantity,
-                    "entry_price": p.entry_price,
-                    "leverage": p.leverage,
-                    "margin": p.margin,
-                    "notional": p.notional,
-                    "liquidation_price": p.liquidation_price(),
-                    "opened_at": p.opened_at,
-                    "unrealized_pnl": p.unrealized_pnl(price),
-                }
-            equity = self.equity(price)
+            self.quote_currency = quote_currency
+            self.futures = futures
+            self.leverage = leverage
+
+    # -- snapshot (web thread) --------------------------------------------
+    def _position_view(self, pos: Position, price: float) -> dict[str, Any]:
+        return {
+            "side": pos.side, "quantity": pos.quantity,
+            "entry_price": pos.entry_price, "leverage": pos.leverage,
+            "margin": pos.margin, "notional": pos.notional,
+            "liquidation_price": pos.liquidation_price(),
+            "opened_at": pos.opened_at,
+            "unrealized_pnl": pos.unrealized_pnl(price) if price else 0.0,
+        }
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            equity = self._equity_locked()
+            today = _now().strftime("%Y-%m-%d")
+            symbols = []
+            open_positions = 0
+            total_unrealized = 0.0
+            for st in self.symbols.values():
+                pos_view = None
+                if st.position is not None:
+                    open_positions += 1
+                    pos_view = self._position_view(st.position, st.last_price)
+                    total_unrealized += pos_view["unrealized_pnl"]
+                symbols.append({
+                    "base": st.base,
+                    "symbol": st.symbol,
+                    "last_price": st.last_price,
+                    "position": pos_view,
+                    "realized_pnl": st.realized_pnl,
+                    "trades_count": st.trades_count,
+                    "price_history": list(st.price_history),
+                })
             return {
                 "status": self.status,
                 "dry_run": self.dry_run,
@@ -185,18 +233,25 @@ class BotState:
                 "leverage": self.leverage,
                 "trading_halted": self.trading_halted,
                 "quote_currency": self.quote_currency,
-                "last_price": price,
-                "quote_balance": self.quote_balance,
-                "position": position,
-                "equity": equity,
                 "starting_equity": self.starting_equity,
+                "equity": equity,
+                "quote_balance": self.quote_balance,
                 "realized_pnl": self.realized_pnl,
+                "unrealized_pnl": total_unrealized,
                 "total_pnl": equity - self.starting_equity,
                 "total_return_pct": (
                     (equity - self.starting_equity) / self.starting_equity * 100
                     if self.starting_equity else 0.0
                 ),
+                "today_pnl": self.daily_pnl.get(today, 0.0),
+                "open_positions": open_positions,
+                "num_symbols": len(self.symbols),
+                "daily_pnl": [{"date": d, "pnl": p}
+                              for d, p in sorted(self.daily_pnl.items())],
+                "equity_curve": [{"t": t, "equity": e}
+                                 for t, e in self.equity_curve],
+                "symbols": symbols,
+                "trades": [vars(t) for t in list(self.trades)[:60]],
                 "last_update": self.last_update,
                 "last_error": self.last_error,
-                "trades": [vars(t) for t in list(self.trades)[:50]],
             }
