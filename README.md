@@ -101,10 +101,11 @@ proxy) — see **[DEPLOY.md](DEPLOY.md)**.
 ./.venv/bin/pytest
 ```
 
-The suite (67 tests) covers every strategy and its indicators, side-aware risk
+The suite (72 tests) covers every strategy and its indicators, side-aware risk
 and liquidation, config validation + live settings updates, multi-symbol
-portfolio accounting, and full engine round-trips (long/short flips, stop-loss,
-liquidation) using a fake exchange — so it runs without any network access.
+portfolio accounting, the backtester, and full engine round-trips (long/short
+flips, stop-loss, liquidation) using a fake exchange — so it runs without any
+network access.
 
 ---
 
@@ -129,6 +130,37 @@ There is no "best" strategy that always wins — market regimes change. The
 **confluence** ensemble is the default because requiring agreement filters out
 many false signals, at the cost of trading less often. Backtest and paper-trade
 any choice before committing real funds.
+
+---
+
+## Backtesting
+
+Before trusting a strategy with money, test it on history. The backtester
+replays past candles through the **exact live engine** (same sizing, stops,
+take-profit, leverage and flips), so results reflect how the bot would really
+behave — not a separate toy model.
+
+**From the dashboard** — the **Backtest** tab: pick a strategy and history
+length, hit *Run backtest* for a full metric breakdown + equity curve, or
+*Compare all strategies* to rank every strategy on the same data.
+
+**From the CLI:**
+
+```bash
+./.venv/bin/python backtest.py --strategy rsi --bars 3000
+./.venv/bin/python backtest.py --compare --bars 3000
+```
+
+Data comes from `market.source`: `simulated` (offline) or `exchange` (real
+Binance candles via ccxt). Reported metrics: total return, **max drawdown**,
+win rate, **profit factor** (gross win ÷ gross loss), average/best/worst trade,
+and an annualized Sharpe ratio.
+
+> **What a backtest is not.** It measures one slice of the past. It ignores
+> trading fees, funding, and slippage, and it disables the daily-loss kill
+> switch during replay. A great backtest is necessary but never sufficient —
+> it does not promise future profit. Treat it as a filter for *bad* strategies,
+> then paper-trade the survivors before going live.
 
 ---
 
@@ -196,6 +228,7 @@ symbol directly in the `symbols` list to override the mapping.
 
 ```
 run.py                  Entrypoint: wires config → exchange → engine → web
+backtest.py             CLI backtester (single strategy or compare-all)
 ecosystem.config.js     PM2 process definition
 setup.sh                One-time venv + deps + .env bootstrap
 cryptobot/
@@ -205,6 +238,7 @@ cryptobot/
   state.py              Multi-symbol portfolio: positions, P&L, charts data
   exchange.py           Multi-symbol ccxt wrapper; futures + dry-run order gate
   simulated.py          Offline multi-asset random-walk market (same interface)
+  backtest.py           Replays history through the live engine; metrics
   trader.py             Background engine: per-symbol loop, runtime reload
   web/app.py            Flask app: state, live settings, and stop endpoints
   web/templates/        The dashboard UI (Overview/Pairs/Analytics/Settings)
