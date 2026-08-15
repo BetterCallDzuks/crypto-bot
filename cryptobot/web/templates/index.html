@@ -161,9 +161,9 @@
     <section class="card">
       <div class="panel-title">Backtest a strategy</div>
       <div class="sub">Replays historical candles through the live engine
-        (same sizing, stops, leverage), net of taker fee + slippage below.
-        Data source: <b id="btSource">…</b>. Funding not modeled; past results
-        don't predict the future.</div>
+        (same sizing, stops, leverage), net of taker fee, slippage and funding
+        below. Data source: <b id="btSource">…</b>. Order-book depth not modeled;
+        past results don't predict the future.</div>
       <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:14px">
         <div class="field"><label for="btStrategy">Strategy</label>
           <select id="btStrategy"></select></div>
@@ -173,9 +173,24 @@
           <input type="number" id="btFee" value="0.04" min="0" step="0.01" style="width:90px"></div>
         <div class="field"><label for="btSlip">Slippage %</label>
           <input type="number" id="btSlip" value="0.05" min="0" step="0.01" style="width:90px"></div>
+        <div class="field"><label for="btFund">Funding %/8h</label>
+          <input type="number" id="btFund" value="0.01" step="0.01" style="width:90px"></div>
         <button class="primary" onclick="runBacktest()">Run backtest</button>
         <button onclick="compareBacktest()">Compare all strategies</button>
         <span id="btMsg" class="sub"></span>
+      </div>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:12px;
+        border-top:1px solid var(--border); padding-top:12px">
+        <div class="field"><label for="btFolds">Walk-forward folds</label>
+          <input type="number" id="btFolds" value="4" min="1" max="10" style="width:90px"></div>
+        <div class="field"><label for="btObjective">Select best by</label>
+          <select id="btObjective">
+            <option value="profit_factor">Profit factor</option>
+            <option value="total_return_pct">Total return</option>
+            <option value="sharpe">Sharpe</option>
+          </select></div>
+        <button onclick="runWalkForward()">Run walk-forward</button>
+        <span class="hint">Picks the best strategy on each in-sample window, tests it on the next (unseen) one.</span>
       </div>
     </section>
     <section class="card hidden" id="btResultCard">
@@ -191,6 +206,18 @@
           <th>Win rate</th><th>Trades</th><th>Profit factor</th><th>Sharpe</th></tr></thead>
         <tbody id="btCompareBody"></tbody>
       </table></div>
+    </section>
+    <section class="card hidden" id="btWfCard">
+      <div class="panel-title">Walk-forward (out-of-sample)</div>
+      <div class="grid stats" id="btWfSummary" style="margin-bottom:14px"></div>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Fold</th><th>In-sample winner</th><th>OOS return</th>
+          <th>OOS profit factor</th><th>OOS max DD</th><th>Trades</th></tr></thead>
+        <tbody id="btWfBody"></tbody>
+      </table></div>
+      <div class="warnbox" style="margin-top:12px">The out-of-sample result is the
+        honest one. Picking the past winner usually does <b>not</b> win the future —
+        weak or negative walk-forward returns are the realistic expectation.</div>
     </section>
   </div>
 
@@ -541,7 +568,8 @@ const pf = v => v == null ? "∞" : fmt(v, 2);
 function costBody() {
   return { bars: Number(document.getElementById("btBars").value),
            fee_pct: Number(document.getElementById("btFee").value),
-           slippage_pct: Number(document.getElementById("btSlip").value) };
+           slippage_pct: Number(document.getElementById("btSlip").value),
+           funding_pct: Number(document.getElementById("btFund").value) };
 }
 async function runBacktest() {
   const strategy = document.getElementById("btStrategy").value;
@@ -569,6 +597,7 @@ function renderBacktest(m) {
     ["Trades", `${m.trades}`, ""],
     ["Sharpe (ann.)", fmt(m.sharpe, 2), cls(m.sharpe)],
     ["Fees paid", `${fmt(m.fees_paid)} ${QUOTE}`, "down"],
+    ["Funding paid", `${sign(m.funding_paid)} ${QUOTE}`, cls(-m.funding_paid)],
     ["Best / worst", `${sign(m.best_trade)} / ${sign(m.worst_trade)}`, ""],
   ];
   document.getElementById("btMetrics").innerHTML = cards.map(([l, v, c]) =>
@@ -595,6 +624,43 @@ async function compareBacktest() {
         <td>${m.trades}</td>
         <td class="${m.profit_factor >= 1 ? "up" : "down"}">${pf(m.profit_factor)}</td>
         <td class="${cls(m.sharpe)}">${fmt(m.sharpe, 2)}</td>
+      </tr>`).join("");
+  } catch (e) { msg.textContent = "Request failed"; }
+}
+
+async function runWalkForward() {
+  const msg = document.getElementById("btMsg");
+  msg.textContent = "Running walk-forward… (this can take several seconds)";
+  const body = { ...costBody(),
+    bars: Math.max(Number(document.getElementById("btBars").value), 1500),
+    folds: Number(document.getElementById("btFolds").value),
+    objective: document.getElementById("btObjective").value };
+  try {
+    const r = await fetch("/api/backtest/walkforward", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body) });
+    const data = await r.json();
+    if (!data.ok) { msg.textContent = "Error: " + data.error; return; }
+    msg.textContent = ""; document.getElementById("btSource").textContent = data.source;
+    document.getElementById("btWfCard").classList.remove("hidden");
+    const s = data.summary;
+    const cards = [
+      ["OOS return (compounded)", `${sign(s.oos_compound_return_pct)}%`, cls(s.oos_compound_return_pct)],
+      ["Profitable folds", `${s.folds_profitable} / ${s.folds_total}`,
+        s.folds_profitable * 2 >= s.folds_total ? "up" : "down"],
+      ["Avg fold return", `${sign(s.avg_fold_return_pct)}%`, cls(s.avg_fold_return_pct)],
+      ["Selection metric", s.objective, ""],
+    ];
+    document.getElementById("btWfSummary").innerHTML = cards.map(([l, v, c]) =>
+      `<div class="card"><div class="label">${l}</div><div class="value ${c}">${v}</div></div>`).join("");
+    document.getElementById("btWfBody").innerHTML = data.folds.map(f => `
+      <tr>
+        <td>${f.fold}</td>
+        <td>${STRATS[f.train_winner] ? STRATS[f.train_winner].label : f.train_winner}</td>
+        <td class="${cls(f.test_return_pct)}">${sign(f.test_return_pct)}%</td>
+        <td class="${f.test_profit_factor >= 1 ? "up" : "down"}">${pf(f.test_profit_factor)}</td>
+        <td class="down">${fmt(f.test_max_drawdown_pct)}%</td>
+        <td>${f.test_trades}</td>
       </tr>`).join("");
   } catch (e) { msg.textContent = "Request failed"; }
 }

@@ -102,6 +102,7 @@ class PortfolioState:
         self.fee_rate = fee_rate
         self.slippage_rate = slippage_rate
         self.total_fees = 0.0
+        self.total_funding = 0.0                       # net funding paid (+)
 
         self.starting_equity = starting_balance
         self.quote_balance = starting_balance          # shared free margin
@@ -197,6 +198,29 @@ class PortfolioState:
             self.last_update = _iso(_now())
             return pnl
 
+    def apply_funding(self, funding_rate: float) -> None:
+        """Charge one funding interval on every open position.
+
+        On perpetual futures, when the funding rate is positive longs pay
+        shorts (and vice versa). The payment is ``rate`` of the position's
+        current notional; it's a realized cash flow, so it hits the balance and
+        realized P&L just like a fee.
+        """
+        if funding_rate == 0:
+            return
+        with self._lock:
+            for st in self.symbols.values():
+                pos = st.position
+                if pos is None or not st.last_price:
+                    continue
+                notional = pos.quantity * st.last_price
+                payment = pos.direction * notional * funding_rate
+                self.quote_balance -= payment
+                self.realized_pnl -= payment
+                st.realized_pnl -= payment
+                self.total_funding += payment
+            self.last_update = _iso(_now())
+
     def record_equity_point(self) -> None:
         with self._lock:
             self.equity_curve.append((_iso(_now()), self._equity_locked()))
@@ -269,6 +293,7 @@ class PortfolioState:
                 "quote_balance": self.quote_balance,
                 "realized_pnl": self.realized_pnl,
                 "total_fees": self.total_fees,
+                "total_funding": self.total_funding,
                 "unrealized_pnl": total_unrealized,
                 "total_pnl": equity - self.starting_equity,
                 "total_return_pct": (

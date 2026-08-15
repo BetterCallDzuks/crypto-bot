@@ -101,11 +101,11 @@ proxy) — see **[DEPLOY.md](DEPLOY.md)**.
 ./.venv/bin/pytest
 ```
 
-The suite (72 tests) covers every strategy and its indicators, side-aware risk
+The suite (80 tests) covers every strategy and its indicators, side-aware risk
 and liquidation, config validation + live settings updates, multi-symbol
-portfolio accounting, the backtester, and full engine round-trips (long/short
-flips, stop-loss, liquidation) using a fake exchange — so it runs without any
-network access.
+portfolio accounting, the backtester (costs, funding, walk-forward), and full
+engine round-trips (long/short flips, stop-loss, liquidation) using a fake
+exchange — so it runs without any network access.
 
 ---
 
@@ -154,21 +154,39 @@ length, hit *Run backtest* for a full metric breakdown + equity curve, or
 Data comes from `market.source`: `simulated` (offline) or `exchange` (real
 Binance candles via ccxt). Reported metrics: total return, **max drawdown**,
 win rate, **profit factor** (gross win ÷ gross loss), average/best/worst trade,
-**fees paid**, and an annualized Sharpe ratio.
+**fees paid**, **funding paid**, and an annualized Sharpe ratio.
 
 **Costs are modeled.** Every fill is charged a configurable taker fee and
-slippage (defaults: 0.04% fee, 0.05% slippage — set in `config.yaml` under
-`backtest`, or per-run in the tab / with `--fee` / `--slippage`). This matters
-enormously: a high-churn strategy that looks green at zero cost can turn deeply
-negative once fees are included — exactly the trap you want the backtester to
-expose *before* real money is involved.
+slippage, and open positions pay/receive **perpetual funding** each interval
+(defaults: 0.04% fee, 0.05% slippage, 0.01% funding per 8h — set in
+`config.yaml` under `backtest`, or per-run in the tab / with `--fee`,
+`--slippage`, `--funding`). This matters enormously: a high-churn strategy that
+looks green at zero cost can turn deeply negative once costs are included —
+exactly the trap you want the backtester to expose *before* real money is
+involved.
+
+### Walk-forward analysis
+
+A single backtest is easy to fool yourself with — pick whatever strategy
+happened to win on that stretch of history and you've *curve-fit the past*.
+Walk-forward guards against it: history is split into consecutive segments; on
+each in-sample segment the bot selects the best strategy, then trades that
+choice **unseen** on the next segment. Out-of-sample returns are compounded.
+
+```bash
+./.venv/bin/python backtest.py --walkforward --bars 3000 --folds 4
+```
+
+Or use the **Run walk-forward** button on the Backtest tab. If picking the past
+winner keeps losing out-of-sample (it usually does), that is the honest signal
+that the "edge" was noise — trust the out-of-sample number, not the in-sample
+one.
 
 > **What a backtest still isn't.** It measures one slice of the past, doesn't
-> model funding payments or order-book depth (a big order slips more than a flat
-> rate), and disables the daily-loss kill switch during replay. A great backtest
-> is necessary but never sufficient — it does not promise future profit. Treat
-> it as a filter for *bad* strategies, then paper-trade the survivors before
-> going live.
+> model order-book depth (a big order slips more than a flat rate), and disables
+> the daily-loss kill switch during replay. A great backtest is necessary but
+> never sufficient — it does not promise future profit. Treat it as a filter for
+> *bad* strategies, then paper-trade the survivors before going live.
 
 ---
 

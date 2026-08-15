@@ -126,12 +126,14 @@ def load_history(config: Config, bars: int,
 # ---------------------------------------------------------------------------
 def run_backtest(config: Config, history: Dict[str, List[float]],
                  fee_rate: float | None = None,
-                 slippage_rate: float | None = None) -> dict:
+                 slippage_rate: float | None = None,
+                 funding_rate: float | None = None) -> dict:
     """Replay ``history`` through the engine and return metrics + equity curve.
 
     Works on a copy of ``config`` with the daily-loss kill switch disabled so
     the run measures the strategy and its exits over the full period. Taker
-    fees and slippage are modeled per fill (defaults from ``config.backtest``).
+    fees, slippage, and perpetual funding are modeled (defaults from
+    ``config.backtest``).
     """
     cfg = copy.deepcopy(config)
     cfg.risk.max_daily_loss_pct = 1.0            # disable daily halt for replay
@@ -139,6 +141,8 @@ def run_backtest(config: Config, history: Dict[str, List[float]],
     fee_rate = cfg.backtest.fee_rate if fee_rate is None else fee_rate
     slippage_rate = (cfg.backtest.slippage_rate if slippage_rate is None
                      else slippage_rate)
+    funding_rate = (cfg.backtest.funding_rate if funding_rate is None
+                    else funding_rate)
 
     bases = [b for b in cfg.market.symbols if history.get(b)]
     if not bases:
@@ -158,10 +162,17 @@ def run_backtest(config: Config, history: Dict[str, List[float]],
     replay = ReplayExchange({b: history[b][:length] for b in bases})
     engine = TradingEngine(cfg, replay, state)      # thread never started
 
+    # Funding is charged every N bars, derived from the interval and timeframe.
+    tf_minutes = _TIMEFRAME_MINUTES.get(cfg.market.timeframe, 1)
+    funding_bars = max(1, round(cfg.backtest.funding_interval_hours * 60
+                                / tf_minutes))
+
     start = engine.strategy.warmup + 5
-    for idx in range(start, length + 1):
+    for step, idx in enumerate(range(start, length + 1)):
         replay.set_index(idx)
         engine.tick()
+        if funding_rate and step > 0 and step % funding_bars == 0:
+            state.apply_funding(funding_rate)
 
     # Close any positions still open at the final bar so P&L is fully realized.
     for base in bases:
@@ -175,8 +186,10 @@ def run_backtest(config: Config, history: Dict[str, List[float]],
     metrics["strategy"] = cfg.strategy.name
     metrics["leverage"] = state.leverage
     metrics["fees_paid"] = state.total_fees
+    metrics["funding_paid"] = state.total_funding
     metrics["fee_rate"] = fee_rate
     metrics["slippage_rate"] = slippage_rate
+    metrics["funding_rate"] = funding_rate
     metrics["equity_curve"] = _downsample([e for _, e in state.equity_curve], 300)
     return metrics
 
@@ -240,7 +253,8 @@ def _metrics(state: PortfolioState, timeframe: str) -> dict:
 
 def compare_strategies(config: Config, history: Dict[str, List[float]],
                        fee_rate: float | None = None,
-                       slippage_rate: float | None = None) -> List[dict]:
+                       slippage_rate: float | None = None,
+                       funding_rate: float | None = None) -> List[dict]:
     """Backtest every registered strategy on the same history; rank by return."""
     results = []
     for name in REGISTRY:
@@ -249,13 +263,97 @@ def compare_strategies(config: Config, history: Dict[str, List[float]],
         cfg.strategy.params = {}
         try:
             m = run_backtest(cfg, history, fee_rate=fee_rate,
-                             slippage_rate=slippage_rate)
+                             slippage_rate=slippage_rate, funding_rate=funding_rate)
             m["label"] = REGISTRY[name].label
             results.append(m)
         except Exception as exc:  # noqa: BLE001 - keep comparing the rest
             log.warning("Backtest failed for %s: %s", name, exc)
     results.sort(key=lambda r: r["total_return_pct"], reverse=True)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Walk-forward analysis
+# ---------------------------------------------------------------------------
+_OBJECTIVES = {
+    "profit_factor": lambda m: (math.inf if m["profit_factor"] is None
+                                else m["profit_factor"]),
+    "total_return_pct": lambda m: m["total_return_pct"],
+    "sharpe": lambda m: m["sharpe"],
+}
+
+
+def _slice_history(history: Dict[str, List[float]], lo: int,
+                   hi: int) -> Dict[str, List[float]]:
+    return {b: v[lo:hi] for b, v in history.items()}
+
+
+def walk_forward(config: Config, history: Dict[str, List[float]],
+                 folds: int = 4, objective: str = "profit_factor",
+                 fee_rate: float | None = None,
+                 slippage_rate: float | None = None,
+                 funding_rate: float | None = None) -> dict:
+    """Rolling walk-forward: pick the best in-sample strategy, test out-of-sample.
+
+    The history is split into ``folds + 1`` equal segments. For each fold the
+    engine ranks every strategy on segment *i* (in-sample), then trades the
+    winner — unseen — on segment *i+1* (out-of-sample). Out-of-sample returns
+    are compounded. This answers the only question that matters: does picking
+    the strategy that looked best on the past actually work on the future?
+    """
+    if objective not in _OBJECTIVES:
+        raise ValueError(f"objective must be one of {sorted(_OBJECTIVES)}")
+    length = min(len(v) for v in history.values())
+    folds = max(1, folds)
+    seg = length // (folds + 1)
+    if seg < 100:
+        raise ValueError(
+            "not enough history for walk-forward — use more bars or fewer folds "
+            f"(each of {folds + 1} segments would be only {seg} bars)"
+        )
+
+    score = _OBJECTIVES[objective]
+    rows: List[dict] = []
+    compound = 1.0
+    for i in range(folds):
+        train = _slice_history(history, i * seg, (i + 1) * seg)
+        test = _slice_history(history, (i + 1) * seg, (i + 2) * seg)
+        ranked = compare_strategies(config, train, fee_rate=fee_rate,
+                                    slippage_rate=slippage_rate,
+                                    funding_rate=funding_rate)
+        winner = max(ranked, key=score)
+        cfg = copy.deepcopy(config)
+        cfg.strategy.name = winner["strategy"]
+        cfg.strategy.params = {}
+        oos = run_backtest(cfg, test, fee_rate=fee_rate,
+                           slippage_rate=slippage_rate, funding_rate=funding_rate)
+        compound *= 1 + oos["total_return_pct"] / 100
+        rows.append({
+            "fold": i + 1,
+            "train_winner": winner["strategy"],
+            "train_label": winner["label"],
+            "train_score": score(winner),
+            "test_return_pct": oos["total_return_pct"],
+            "test_profit_factor": oos["profit_factor"],
+            "test_max_drawdown_pct": oos["max_drawdown_pct"],
+            "test_win_rate_pct": oos["win_rate_pct"],
+            "test_trades": oos["trades"],
+        })
+
+    profitable = sum(1 for r in rows if r["test_return_pct"] > 0)
+    avg = sum(r["test_return_pct"] for r in rows) / len(rows)
+    return {
+        "folds": rows,
+        "summary": {
+            "num_folds": folds,
+            "objective": objective,
+            "segment_bars": seg,
+            "oos_compound_return_pct": (compound - 1) * 100,
+            "avg_fold_return_pct": avg,
+            "folds_profitable": profitable,
+            "folds_total": folds,
+        },
+    }
 
 
 def _downsample(values: List[float], target: int) -> List[float]:

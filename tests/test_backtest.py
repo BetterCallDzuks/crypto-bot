@@ -1,10 +1,13 @@
 """Tests for the backtesting engine."""
 
+import pytest
+
 from cryptobot.backtest import (
     ReplayExchange,
     compare_strategies,
     generate_sim_history,
     run_backtest,
+    walk_forward,
 )
 from cryptobot.config import Config, FuturesConfig, MarketConfig, StrategyConfig
 
@@ -98,3 +101,58 @@ def test_state_zero_cost_matches_plain_accounting():
     assert s.symbols["BTC"].position.entry_price == 100      # no slippage
     pnl = s.close_position("BTC", 110, reason="tp")
     assert pnl == 10 and s.total_fees == 0.0                 # no fees
+
+
+def test_funding_charges_long_and_pays_short():
+    from cryptobot.state import PortfolioState
+    # Long pays funding when the rate is positive.
+    s = PortfolioState(bases=["BTC"], symbols={"BTC": "BTC/USDC:USDC"},
+                       starting_balance=10_000, futures=True, leverage=5)
+    s.open_position("BTC", "long", 2, 100, margin=40, leverage=5, reason="x")
+    s.set_price("BTC", 100)
+    s.apply_funding(0.001)                 # notional 200 * 0.001 = 0.20 paid
+    assert round(s.total_funding, 6) == 0.20
+    assert round(s.quote_balance, 6) == round(10_000 - 40 - 0.20, 6)
+
+    # Short receives funding when the rate is positive.
+    s2 = PortfolioState(bases=["BTC"], symbols={"BTC": "BTC/USDC:USDC"},
+                        starting_balance=10_000, futures=True, leverage=5)
+    s2.open_position("BTC", "short", 2, 100, margin=40, leverage=5, reason="x")
+    s2.set_price("BTC", 100)
+    s2.apply_funding(0.001)
+    assert round(s2.total_funding, 6) == -0.20     # received
+
+
+def test_funding_reported_in_metrics():
+    cfg = _config()
+    hist = generate_sim_history(cfg, bars=1000, seed=5)
+    m = run_backtest(cfg, hist, funding_rate=0.001)
+    assert "funding_paid" in m and m["funding_rate"] == 0.001
+
+
+def test_walk_forward_structure_and_folds():
+    cfg = _config()
+    hist = generate_sim_history(cfg, bars=3000, seed=8)
+    wf = walk_forward(cfg, hist, folds=4, objective="profit_factor")
+    assert len(wf["folds"]) == 4
+    assert wf["summary"]["num_folds"] == 4
+    for r in wf["folds"]:
+        assert r["train_winner"] in {
+            "confluence", "ema_crossover", "sma_crossover", "macd",
+            "rsi", "bollinger", "donchian"}
+        assert "test_return_pct" in r
+    assert 0 <= wf["summary"]["folds_profitable"] <= 4
+
+
+def test_walk_forward_rejects_too_little_history():
+    cfg = _config()
+    hist = generate_sim_history(cfg, bars=300, seed=1)
+    with pytest.raises(ValueError, match="not enough history"):
+        walk_forward(cfg, hist, folds=8)
+
+
+def test_walk_forward_bad_objective():
+    cfg = _config()
+    hist = generate_sim_history(cfg, bars=1500, seed=1)
+    with pytest.raises(ValueError, match="objective"):
+        walk_forward(cfg, hist, folds=2, objective="vibes")
