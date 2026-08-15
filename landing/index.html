@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>crypto-bot — self-hosted crypto futures trading bot</title>
+  <meta name="description" content="An open, self-hosted multi-symbol crypto futures trading bot with a live dashboard, a strategy library, and an honest cost-aware backtester. You run it, on your own keys, at your own risk.">
+  <style>
+    :root {
+      --bg:#0d1117; --panel:#161b22; --panel2:#1c232d; --border:#2a3340;
+      --text:#e6edf3; --muted:#8b98a5; --accent:#58a6ff; --up:#3fb950;
+      --down:#f85149; --warn:#d29922; --violet:#a371f7;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text);
+      font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+    a { color:var(--accent); text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .wrap { max-width:960px; margin:0 auto; padding:0 20px; }
+    code { background:var(--panel2); padding:2px 6px; border-radius:5px; font-size:.9em; }
+    pre { background:var(--panel); border:1px solid var(--border); border-radius:10px;
+      padding:16px; overflow-x:auto; }
+    .hero { text-align:center; padding:72px 0 40px; }
+    .logo { font-size:40px; font-weight:800; letter-spacing:-.02em; }
+    .logo .b { color:var(--accent); }
+    .tag { color:var(--muted); font-size:20px; margin:14px auto 0; max-width:640px; }
+    .cta { margin-top:28px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+    .btn { display:inline-block; padding:12px 22px; border-radius:10px; font-weight:700;
+      border:1px solid var(--border); }
+    .btn.primary { background:var(--accent); color:#05192e; border-color:var(--accent); }
+    .btn.ghost { background:var(--panel); color:var(--text); }
+    .pills { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:22px; }
+    .pill { font-size:13px; color:var(--muted); border:1px solid var(--border);
+      border-radius:999px; padding:5px 12px; }
+    section { padding:44px 0; border-top:1px solid var(--border); }
+    h2 { font-size:26px; margin:0 0 8px; }
+    .sub { color:var(--muted); margin:0 0 24px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px; }
+    .card h3 { margin:0 0 6px; font-size:17px; }
+    .card p { margin:0; color:var(--muted); font-size:14px; }
+    .emoji { font-size:22px; }
+    .warn { background:rgba(210,153,34,.08); border:1px solid var(--warn); color:#f0d090;
+      border-radius:12px; padding:18px 20px; }
+    .warn b { color:var(--warn); }
+    .donate { text-align:center; }
+    .addr { display:inline-block; margin-top:12px; background:var(--panel); border:1px solid var(--border);
+      border-radius:10px; padding:12px 16px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+      word-break:break-all; }
+    footer { color:var(--muted); font-size:13px; text-align:center; padding:36px 0 60px; }
+    @media (max-width:520px){ .logo{font-size:32px;} .tag{font-size:17px;} }
+  </style>
+</head>
+<body>
+  <div class="hero wrap">
+    <div class="logo">crypto<span class="b">-bot</span></div>
+    <p class="tag">An open, self-hosted crypto <b>futures</b> trading bot with a
+      live dashboard, a strategy library, and a genuinely honest backtester.
+      You run it — on your own keys, at your own risk.</p>
+    <div class="cta">
+      <!-- Replace with your repository / release URL -->
+      <a class="btn primary" href="https://github.com/BetterCallDzuks/crypto-bot">Get it on GitHub</a>
+      <a class="btn ghost" href="#install">Install in one command</a>
+    </div>
+    <div class="pills">
+      <span class="pill">Multi-symbol · USDC / BNFCR</span>
+      <span class="pill">7 strategies</span>
+      <span class="pill">Walk-forward backtesting</span>
+      <span class="pill">Live WebSocket data</span>
+      <span class="pill">Runs on your VPS</span>
+    </div>
+  </div>
+
+  <section class="wrap">
+    <h2>What it does</h2>
+    <p class="sub">A complete trading system you host yourself — not a service that touches your money.</p>
+    <div class="grid">
+      <div class="card"><div class="emoji">📊</div><h3>Live dashboard</h3><p>Equity, per-pair P&amp;L, positions with liquidation prices, and charts — updating in real time, in your timezone.</p></div>
+      <div class="card"><div class="emoji">🧠</div><h3>Strategy library</h3><p>Confluence, EMA/SMA crossover, MACD, RSI, Bollinger, Donchian — switch and tune them live.</p></div>
+      <div class="card"><div class="emoji">🛡️</div><h3>Real risk controls</h3><p>Leverage-aware sizing, stop-loss, take-profit, a liquidation backstop, and a daily-loss kill switch.</p></div>
+      <div class="card"><div class="emoji">🔬</div><h3>Honest backtester</h3><p>Replays real candles through the live engine, net of fees, slippage and <b>real funding</b> — with walk-forward validation.</p></div>
+      <div class="card"><div class="emoji">⚡</div><h3>Live WebSocket feed</h3><p>Real-time mark prices so stop-loss and liquidation checks react in ~1s, not at the next poll.</p></div>
+      <div class="card"><div class="emoji">🔒</div><h3>Your keys, your machine</h3><p>Runs on your VPS with your API keys and a password-protected dashboard. The authors never see your funds.</p></div>
+    </div>
+  </section>
+
+  <section class="wrap" id="install">
+    <h2>Install in one command</h2>
+    <p class="sub">On any Linux box with Docker:</p>
+    <pre><code>git clone https://github.com/BetterCallDzuks/crypto-bot.git
+cd crypto-bot
+cp .env.example .env        # add your Binance keys + a DASHBOARD_PASSWORD
+touch config.local.yaml
+docker compose up -d        # dashboard on http://127.0.0.1:4000</code></pre>
+    <p class="sub" style="margin-top:14px">It runs in safe <b>paper mode</b> by
+      default — no keys needed to try it. See the README and DEPLOY.md for going
+      live and reaching the dashboard remotely (Tailscale, SSH tunnel, HTTPS).</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Before you use it</h2>
+    <div class="warn">
+      <b>This is not a money printer, and it is not financial advice.</b> Trading
+      leveraged futures can liquidate your position and lose your capital fast.
+      Most strategies lose after fees and funding — the backtester exists to show
+      you that <i>before</i> you risk anything. Paper-trade, then testnet, then
+      start small. You run this on your own account and are fully responsible for
+      the outcome. See the <a href="https://github.com/BetterCallDzuks/crypto-bot/blob/main/DISCLAIMER.md">full disclaimer</a>.
+    </div>
+  </section>
+
+  <section class="wrap donate">
+    <h2>Support the project</h2>
+    <p class="sub">crypto-bot is free to use for noncommercial purposes. If it's
+      useful to you, a donation keeps it maintained. Thank you 🙏</p>
+    <!-- Replace with your own wallet address(es). Double-check before publishing. -->
+    <div><span class="pill">USDT / USDC (your network)</span></div>
+    <div class="addr">YOUR_CRYPTO_WALLET_ADDRESS_HERE</div>
+  </section>
+
+  <footer class="wrap">
+    Licensed under
+    <a href="https://polyformproject.org/licenses/noncommercial/1.0.0">PolyForm Noncommercial 1.0.0</a>
+    — free for noncommercial use, no reselling. © 2026 Antonio Đuranec.<br>
+    Not affiliated with Binance. Trade at your own risk.
+  </footer>
+</body>
+</html>

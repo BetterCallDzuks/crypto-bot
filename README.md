@@ -34,6 +34,12 @@ launch it and watch it trade immediately — no network, no API keys, no risk.
 Live trading is strictly opt-in. It also trades spot (long-only) with
 `futures.enabled: false`.
 
+> ⚠️ **Not financial advice, and not a money printer.** You run this yourself on
+> your own exchange account and keys; the authors never touch your funds.
+> Leveraged futures can be liquidated and lose your capital fast. Please read
+> the **[DISCLAIMER](DISCLAIMER.md)** before using it. Licensed
+> **[PolyForm Noncommercial 1.0.0](LICENSE)** — free for noncommercial use.
+
 ---
 
 ## ⚠️ Safety first — read this
@@ -89,6 +95,20 @@ pm2 save && pm2 startup           # survive reboots
 
 PM2 runs `run.py` through the project's `./.venv/bin/python`, so no global
 Python packages are needed.
+
+## Running with Docker (one command)
+
+```bash
+cp .env.example .env        # add your Binance keys + a DASHBOARD_PASSWORD
+touch config.local.yaml     # so dashboard settings persist across restarts
+docker compose up -d        # build + run; dashboard on http://127.0.0.1:4000
+docker compose logs -f      # follow logs
+```
+
+The compose file publishes the dashboard on `127.0.0.1:4000` (host-local) and
+persists `config.local.yaml`, `data/`, and `reports/`. Set `DASHBOARD_PASSWORD`
+in `.env` — the container binds `0.0.0.0` internally, and the bot requires a
+password whenever it isn't bound to localhost.
 
 For a full VPS walkthrough — prerequisites, PM2 setup, and how to reach the
 dashboard securely from anywhere (SSH tunnel, Tailscale, or an HTTPS reverse
@@ -268,8 +288,13 @@ run.py                  Entrypoint: wires config → exchange → engine → web
 backtest.py             CLI backtester (single / compare / walk-forward)
 research.py             Scheduled walk-forward report generator (cron)
 ecosystem.config.js     PM2 process definition
+Dockerfile              Container image
+docker-compose.yml      One-command self-hosting
 setup.sh                One-time venv + deps + .env bootstrap
+landing/index.html      Static marketing/landing page (host it anywhere)
+LICENSE · DISCLAIMER.md PolyForm Noncommercial license and risk disclaimer
 cryptobot/
+  pricefeed.py          Live Binance WebSocket mark-price feed
   config.py             Typed config; validation, live updates, persistence
   strategy.py           Strategy library + indicators (registry & factory)
   risk.py               Leverage sizing, side-aware exits, liquidation, limits
@@ -298,3 +323,39 @@ tests/                  Strategy, risk, config, state, and engine tests (41)
   there is a single, auditable place where a real order can be sent.
 - Charts are hand-rolled inline SVG (no chart library, no CDN), so the
   dashboard works fully offline.
+
+---
+
+## Sharing it with others
+
+crypto-bot is meant to be **self-hosted**: each person runs their own copy with
+their own API keys on their own machine. Nobody's funds or keys are ever sent to
+anyone else. That's the safe, low-liability way to share a trading tool —
+you're distributing software, not operating a financial service. A ready-to-host
+[landing page](landing/index.html) is included; point it at your repo and fill
+in your donation address.
+
+> Running a *hosted* service that trades other people's money for a fee is a
+> different thing entirely — in most of the EU (incl. Croatia) it's a regulated
+> financial activity. Talk to a fintech lawyer before going there.
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE) — free to use, modify, and share for
+**noncommercial** purposes; commercial use (including reselling or running it as
+a paid service) requires a separate license from the author.
+
+## Support / donate
+
+If the project is useful to you, donations are welcome and keep it maintained.
+Add your wallet address in the [landing page](landing/index.html) and here:
+
+```
+USDT / USDC:  YOUR_CRYPTO_WALLET_ADDRESS_HERE
+```
+
+## Disclaimer
+
+Trading is risky; see **[DISCLAIMER.md](DISCLAIMER.md)**. This software is
+provided "as is", without warranty, and the authors are not liable for any
+losses. It is not financial advice.

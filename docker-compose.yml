@@ -1,0 +1,28 @@
+# crypto-bot — one-command self-hosting.
+#
+#   cp .env.example .env          # then add your Binance keys + DASHBOARD_PASSWORD
+#   touch config.local.yaml       # so dashboard settings persist across restarts
+#   docker compose up -d          # build + run
+#   docker compose logs -f        # follow logs
+#
+# The dashboard is published on 127.0.0.1:4000 (host-local only). To reach it
+# remotely, use an SSH tunnel, Tailscale, or an HTTPS reverse proxy — see
+# DEPLOY.md. Set DASHBOARD_PASSWORD in .env before exposing it anywhere.
+
+services:
+  crypto-bot:
+    build: .
+    image: crypto-bot
+    container_name: crypto-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Bind inside the container; the port mapping below keeps it host-local.
+      WEB_HOST: "0.0.0.0"
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro       # tracked defaults (read-only)
+      - ./config.local.yaml:/app/config.local.yaml  # dashboard-saved settings
+      - ./data:/app/data                          # logs / runtime files
+      - ./reports:/app/reports                    # walk-forward research reports
