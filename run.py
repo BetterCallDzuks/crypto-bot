@@ -71,7 +71,17 @@ def main() -> int:
         futures=config.futures.enabled,
         leverage=config.futures.leverage if config.futures.enabled else 1,
     )
-    engine = TradingEngine(config, exchange, state)
+
+    # Live WebSocket price feed (Binance only, real data only, opt-in).
+    price_feed = None
+    if (config.market.source == "exchange" and config.market.live_feed
+            and config.exchange.id == "binance"):
+        from cryptobot.pricefeed import LivePriceFeed
+        price_feed = LivePriceFeed(bases, config.market.quote_currency,
+                                   sandbox=config.exchange.sandbox)
+        log.info("Live WebSocket price feed enabled (real-time risk checks).")
+
+    engine = TradingEngine(config, exchange, state, price_feed=price_feed)
     engine.start()
 
     app = create_app(config, state, engine)

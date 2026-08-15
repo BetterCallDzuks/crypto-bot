@@ -1,0 +1,12 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+data
+reports
+*.log
+.env
+config.local.yaml
+landing

@@ -2,3 +2,4 @@ ccxt>=4.5,<5
 Flask>=3.0,<4
 PyYAML>=6.0
 python-dotenv>=1.0
+websocket-client>=1.7

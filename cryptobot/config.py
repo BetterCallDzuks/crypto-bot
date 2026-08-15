@@ -44,6 +44,9 @@ class MarketConfig:
     # Base assets to trade. The ccxt market symbol is derived from the quote
     # currency (e.g. BTC + USDC -> "BTC/USDC:USDC" for a perpetual).
     symbols: list[str] = field(default_factory=lambda: list(DEFAULT_SYMBOLS))
+    # Stream live mark prices over WebSocket (Binance only) for real-time risk
+    # checks and dashboard prices. Ignored for the simulated source.
+    live_feed: bool = True
 
 
 @dataclass
@@ -421,6 +424,13 @@ def load_config(
 
     auth = _load_auth_from_env()
 
+    # Env overrides let containers set the bind address without editing files.
+    web = WebConfig(**_section(raw, "web"))
+    if os.environ.get("WEB_HOST"):
+        web.host = os.environ["WEB_HOST"]
+    if os.environ.get("WEB_PORT"):
+        web.port = int(os.environ["WEB_PORT"])
+
     cfg = Config(
         exchange=exchange,
         market=MarketConfig(**_section(raw, "market")),
@@ -429,7 +439,7 @@ def load_config(
         risk=RiskConfig(**_section(raw, "risk")),
         futures=FuturesConfig(**_section(raw, "futures")),
         backtest=BacktestConfig(**_section(raw, "backtest")),
-        web=WebConfig(**_section(raw, "web")),
+        web=web,
         auth=auth,
     )
     cfg.validate()
