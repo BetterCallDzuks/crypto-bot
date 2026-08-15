@@ -1,0 +1,64 @@
+# ============================================================================
+# crypto-bot configuration
+# ----------------------------------------------------------------------------
+# SAFETY: `dry_run: true` means NO real orders are ever sent — trades are
+# simulated locally against live market prices (paper trading). Live trading
+# is only enabled when you BOTH set `dry_run: false` AND provide valid API
+# keys via the .env file. Read the README before going live.
+#
+# Most of these values can also be changed live from the dashboard's Settings
+# page (which writes them back here). Changing the symbol list or quote
+# currency requires a restart (e.g. `pm2 restart crypto-bot`).
+# ============================================================================
+
+exchange:
+  id: binance
+  # Use the exchange's testnet while validating. Recommended even once live.
+  sandbox: true
+
+market:
+  # "simulated" runs an offline random-walk market for every symbol — no
+  # network or API keys needed. Switch to "exchange" for real Binance data.
+  source: simulated
+  # Margin/quote asset. In Croatia/EEA, USDT is unavailable — use USDC or
+  # BNFCR (Binance's EEA settlement asset). The ccxt market symbol is derived
+  # as BASE/QUOTE:QUOTE for perpetual futures, e.g. BTC/USDC:USDC.
+  quote_currency: USDC
+  timeframe: 1m
+  # Base assets to trade. Add/remove freely; each trades independently.
+  symbols:
+    - BTC
+    - ETH
+    - XRP
+    - SOL
+    - DOGE
+    - BNB
+    - ADA
+
+futures:
+  enabled: true
+  leverage: 5           # e.g. 5x — a ~20% adverse move liquidates the position
+  margin_mode: isolated # "isolated" caps risk to a position's margin; "cross"
+  allow_short: true     # flip to a short position on a bearish crossover
+
+trading:
+  dry_run: true               # master safety switch
+  poll_interval: 30           # seconds between strategy evaluations
+  paper_starting_balance: 10000.0
+
+strategy:
+  name: sma_crossover
+  fast_period: 9
+  slow_period: 21
+
+risk:
+  # Fraction of the shared balance posted as margin per NEW position. With
+  # several symbols trading at once, keep this modest so the basket fits.
+  position_size_pct: 0.15
+  stop_loss_pct: 0.02         # exit when price moves 2% against the position
+  take_profit_pct: 0.04       # exit when price moves 4% in favor
+  max_daily_loss_pct: 0.05    # halt new entries after a 5% daily drawdown
+
+web:
+  host: 127.0.0.1
+  port: 4000

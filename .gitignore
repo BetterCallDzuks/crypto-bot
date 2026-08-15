@@ -1,0 +1,15 @@
+# Secrets — NEVER commit real API keys
+.env
+config.local.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Runtime state / logs
+data/
+*.log

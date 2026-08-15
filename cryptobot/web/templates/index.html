@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>crypto-bot dashboard</title>
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --panel2: #1c232d; --border: #2a3340;
+      --text: #e6edf3; --muted: #8b98a5; --accent: #58a6ff;
+      --up: #3fb950; --down: #f85149; --warn: #d29922; --violet: #a371f7;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      Helvetica, Arial, sans-serif; }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 20px; }
+    a { color: var(--accent); }
+    h1 { font-size: 19px; margin: 0; }
+    .row { display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; }
+    .muted { color: var(--muted); }
+    .sub { color: var(--muted); font-size: 13px; }
+    .badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+    .badge { padding: 4px 10px; border-radius: 999px; font-size: 12px;
+      font-weight: 600; border: 1px solid var(--border); white-space: nowrap; }
+    .badge.live { background: rgba(248,81,73,.15); color: var(--down);
+      border-color: var(--down); }
+    .badge.paper { background: rgba(63,185,80,.12); color: var(--up);
+      border-color: var(--up); }
+    .badge.lev { background: rgba(88,166,255,.14); color: var(--accent);
+      border-color: var(--accent); }
+    .badge.quote { background: rgba(163,113,247,.14); color: var(--violet);
+      border-color: var(--violet); }
+    .badge.halted { background: rgba(210,153,34,.15); color: var(--warn);
+      border-color: var(--warn); }
+    button { background: var(--panel2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px;
+      font-weight: 600; cursor: pointer; font-size: 13px; }
+    button:hover { border-color: var(--accent); }
+    button.danger { background: var(--down); color: #fff; border-color: var(--down); }
+    button.primary { background: var(--accent); color: #05192e; border-color: var(--accent); }
+    button:disabled { opacity: .5; cursor: default; }
+    nav { display: flex; gap: 4px; margin: 8px 0 18px; border-bottom: 1px solid var(--border); }
+    nav button { background: none; border: none; border-bottom: 2px solid transparent;
+      border-radius: 0; padding: 10px 14px; color: var(--muted); }
+    nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+    .grid { display: grid; gap: 12px; }
+    .stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+    .pairs { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+    .card { background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px; }
+    .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase;
+      letter-spacing: .04em; }
+    .card .value { font-size: 21px; font-weight: 700; margin-top: 6px;
+      font-variant-numeric: tabular-nums; }
+    .up { color: var(--up); } .down { color: var(--down); } .warnc { color: var(--warn); }
+    .panel-title { font-size: 14px; font-weight: 700; margin: 0 0 12px; }
+    section.card { margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--border);
+      font-variant-numeric: tabular-nums; font-size: 13px; }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+    .dir-long { color: var(--up); font-weight: 600; }
+    .dir-short { color: var(--down); font-weight: 600; }
+    .liq { color: var(--warn); }
+    .tag { font-size: 11px; padding: 2px 7px; border-radius: 6px;
+      border: 1px solid var(--border); color: var(--muted); }
+    .pairhead { display: flex; align-items: baseline; justify-content: space-between; }
+    .pairhead .price { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .chart { width: 100%; height: 56px; display: block; }
+    .bigchart { width: 100%; height: 220px; display: block; }
+    form.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field label { font-size: 12px; color: var(--muted); font-weight: 600; }
+    .field input, .field select { background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 7px; padding: 8px; font-size: 13px; }
+    .field .hint { font-size: 11px; color: var(--muted); }
+    .check { flex-direction: row; align-items: center; gap: 8px; }
+    .check input { width: 16px; height: 16px; }
+    .savebar { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+    .msg-ok { color: var(--up); } .msg-err { color: var(--down); }
+    .hidden { display: none; }
+    .foot { color: var(--muted); font-size: 12px; margin-top: 16px; }
+    .warnbox { background: rgba(210,153,34,.10); border: 1px solid var(--warn);
+      color: var(--warn); border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row">
+    <div>
+      <h1>crypto-bot</h1>
+      <div class="sub" id="statusline">—</div>
+    </div>
+    <button id="stopBtn" class="danger" onclick="stopBot()">Stop bot</button>
+  </div>
+
+  <div class="badges" id="badges"></div>
+
+  <nav>
+    <button class="active" data-tab="overview" onclick="showTab('overview')">Overview</button>
+    <button data-tab="pairs" onclick="showTab('pairs')">Pairs</button>
+    <button data-tab="analytics" onclick="showTab('analytics')">Analytics</button>
+    <button data-tab="settings" onclick="showTab('settings'); loadSettings()">Settings</button>
+  </nav>
+
+  <!-- OVERVIEW -->
+  <div id="tab-overview">
+    <div class="grid stats" id="stats" style="margin-bottom:16px"></div>
+    <section class="card">
+      <div class="panel-title">Equity curve (<span id="equity-cur">USDC</span>)</div>
+      <svg class="bigchart" id="equityChart"></svg>
+      <div class="sub" id="equity-empty"></div>
+    </section>
+    <section class="card">
+      <div class="panel-title">Daily P&amp;L</div>
+      <svg class="bigchart" id="dailyChart" style="height:160px"></svg>
+      <div class="sub" id="daily-empty"></div>
+    </section>
+    <section class="card">
+      <div class="panel-title">Recent trades</div>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Time</th><th>Pair</th><th>Action</th><th>Qty</th>
+          <th>Price</th><th>Reason</th><th>P&amp;L</th></tr></thead>
+        <tbody id="trades"><tr><td colspan="7" class="sub">No trades yet.</td></tr></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <!-- PAIRS -->
+  <div id="tab-pairs" class="hidden">
+    <div class="grid pairs" id="pairGrid"></div>
+  </div>
+
+  <!-- ANALYTICS -->
+  <div id="tab-analytics" class="hidden">
+    <div class="grid stats" id="analyticsStats" style="margin-bottom:16px"></div>
+    <section class="card">
+      <div class="panel-title">Realized P&amp;L by pair</div>
+      <svg class="bigchart" id="pairPnlChart" style="height:200px"></svg>
+    </section>
+    <section class="card">
+      <div class="panel-title">Daily P&amp;L breakdown</div>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Date</th><th>P&amp;L</th></tr></thead>
+        <tbody id="dailyTable"><tr><td colspan="2" class="sub">No data yet.</td></tr></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="tab-settings" class="hidden">
+    <section class="card">
+      <div class="panel-title">Bot parameters</div>
+      <div class="sub">Strategy, risk, leverage and direction apply on the next poll.
+        Symbols and quote currency need a restart (e.g. <code>pm2 restart crypto-bot</code>).</div>
+      <div id="liveWarn" class="warnbox hidden">⚠ Turning off dry-run enables LIVE trading with real funds.</div>
+      <form class="settings" id="settingsForm" style="margin-top:14px" onsubmit="return false"></form>
+      <div class="savebar">
+        <button class="primary" onclick="saveSettings()">Save settings</button>
+        <button onclick="loadSettings()">Reset</button>
+        <span id="saveMsg"></span>
+      </div>
+    </section>
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+// ---- formatting helpers ---------------------------------------------------
+const fmt = (n, d = 2) => (n ?? 0).toLocaleString(undefined,
+  { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtPrice = p => { p = p || 0; const d = p >= 1000 ? 2 : p >= 1 ? 4 : 6; return fmt(p, d); };
+const cls = n => n > 0 ? "up" : n < 0 ? "down" : "";
+const sign = (n, d = 2) => (n > 0 ? "+" : "") + fmt(n, d);
+let QUOTE = "USDC";
+
+// ---- tiny inline-SVG charts (no dependencies) -----------------------------
+function lineChart(svg, values, opts = {}) {
+  const w = svg.clientWidth || 600, h = svg.clientHeight || 200, pad = 6;
+  if (!values || values.length < 2) { svg.innerHTML = ""; return; }
+  const min = Math.min(...values), max = Math.max(...values), span = (max - min) || 1;
+  const x = i => pad + i * (w - 2 * pad) / (values.length - 1);
+  const y = v => h - pad - (v - min) / span * (h - 2 * pad);
+  const pts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const color = opts.color || getVar("--accent");
+  const last = values[values.length - 1], first = values[0];
+  const stroke = opts.autoColor ? (last >= first ? getVar("--up") : getVar("--down")) : color;
+  const area = opts.area
+    ? `<polygon points="${pad},${h-pad} ${pts} ${w-pad},${h-pad}" fill="${stroke}" opacity="0.08"/>` : "";
+  svg.innerHTML = `${area}<polyline points="${pts}" fill="none" stroke="${stroke}"
+    stroke-width="${opts.width || 1.8}" stroke-linejoin="round" stroke-linecap="round"/>`;
+}
+function barChart(svg, items, opts = {}) {
+  const w = svg.clientWidth || 600, h = svg.clientHeight || 160, pad = 6, gap = 3;
+  if (!items || !items.length) { svg.innerHTML = ""; return; }
+  const vals = items.map(it => it.value);
+  const max = Math.max(1e-9, ...vals.map(Math.abs));
+  const zeroY = h / 2, bw = Math.max(1, (w - 2 * pad) / items.length - gap);
+  let bars = "", labels = "";
+  items.forEach((it, i) => {
+    const bx = pad + i * (w - 2 * pad) / items.length;
+    const bh = Math.abs(it.value) / max * (h / 2 - 14);
+    const up = it.value >= 0;
+    const by = up ? zeroY - bh : zeroY;
+    const color = up ? getVar("--up") : getVar("--down");
+    bars += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}"
+      height="${Math.max(1, bh).toFixed(1)}" rx="2" fill="${color}"/>`;
+    if (opts.labels && items.length <= 16)
+      labels += `<text x="${(bx + bw / 2).toFixed(1)}" y="${h - 2}" fill="${getVar('--muted')}"
+        font-size="10" text-anchor="middle">${it.label}</text>`;
+  });
+  const axis = `<line x1="${pad}" y1="${zeroY}" x2="${w-pad}" y2="${zeroY}"
+    stroke="${getVar('--border')}" stroke-width="1"/>`;
+  svg.innerHTML = axis + bars + labels;
+}
+function getVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// ---- tabs -----------------------------------------------------------------
+let activeTab = "overview";
+function showTab(name) {
+  activeTab = name;
+  ["overview", "pairs", "analytics", "settings"].forEach(t =>
+    document.getElementById("tab-" + t).classList.toggle("hidden", t !== name));
+  document.querySelectorAll("nav button").forEach(b =>
+    b.classList.toggle("active", b.dataset.tab === name));
+  if (lastState) render(lastState);
+}
+
+// ---- main render ----------------------------------------------------------
+let lastState = null;
+async function refresh() {
+  try { lastState = await (await fetch("/api/state")).json(); }
+  catch (e) { document.getElementById("foot").textContent = "Connection lost…"; return; }
+  render(lastState);
+}
+
+function render(s) {
+  QUOTE = s.quote_currency;
+  document.getElementById("statusline").textContent = s.status;
+  document.getElementById("equity-cur").textContent = QUOTE;
+
+  const badges = [];
+  badges.push(s.dry_run ? `<span class="badge paper">PAPER (dry-run)</span>`
+                        : `<span class="badge live">LIVE TRADING</span>`);
+  badges.push(s.futures ? `<span class="badge lev">FUTURES ${s.leverage}x</span>`
+                        : `<span class="badge">SPOT</span>`);
+  badges.push(`<span class="badge quote">${QUOTE}</span>`);
+  badges.push(`<span class="badge">${s.num_symbols} pairs · ${s.open_positions} open</span>`);
+  if (s.trading_halted) badges.push(`<span class="badge halted">DAILY LOSS LIMIT — entries halted</span>`);
+  document.getElementById("badges").innerHTML = badges.join("");
+
+  document.getElementById("stopBtn").disabled = s.status === "stopped";
+  let foot = `Updated ${s.last_update}`;
+  if (s.last_error) foot += ` · last error: ${s.last_error}`;
+  document.getElementById("foot").textContent = foot;
+
+  if (activeTab === "overview") renderOverview(s);
+  else if (activeTab === "pairs") renderPairs(s);
+  else if (activeTab === "analytics") renderAnalytics(s);
+}
+
+function renderOverview(s) {
+  const cards = [
+    ["Equity", `${fmt(s.equity)} ${QUOTE}`, ""],
+    ["Total P&L", `${sign(s.total_pnl)} ${QUOTE}`, cls(s.total_pnl)],
+    ["Return", `${sign(s.total_return_pct)}%`, cls(s.total_pnl)],
+    ["Today P&L", `${sign(s.today_pnl)} ${QUOTE}`, cls(s.today_pnl)],
+    ["Realized", `${sign(s.realized_pnl)} ${QUOTE}`, cls(s.realized_pnl)],
+    ["Unrealized", `${sign(s.unrealized_pnl)} ${QUOTE}`, cls(s.unrealized_pnl)],
+    ["Free margin", `${fmt(s.quote_balance)} ${QUOTE}`, ""],
+    ["Open positions", `${s.open_positions} / ${s.num_symbols}`, ""],
+  ];
+  document.getElementById("stats").innerHTML = cards.map(([l, v, c]) =>
+    `<div class="card"><div class="label">${l}</div><div class="value ${c}">${v}</div></div>`).join("");
+
+  const eq = s.equity_curve.map(p => p.equity);
+  lineChart(document.getElementById("equityChart"), eq, { area: true, autoColor: true, width: 2 });
+  document.getElementById("equity-empty").textContent =
+    eq.length < 2 ? "Collecting data… the curve appears after a few polls." : "";
+
+  barChart(document.getElementById("dailyChart"),
+    s.daily_pnl.map(d => ({ label: d.date.slice(5), value: d.pnl })), { labels: true });
+  document.getElementById("daily-empty").textContent =
+    s.daily_pnl.length ? "" : "No closed trades yet.";
+
+  renderTrades(document.getElementById("trades"), s.trades.slice(0, 15), true);
+}
+
+function renderTrades(tb, trades, withPair) {
+  const label = a => a.replace("_", " ").toUpperCase();
+  const dirClass = a => a.endsWith("long") ? "dir-long" : "dir-short";
+  const isClose = a => a.startsWith("close");
+  if (!trades.length) {
+    tb.innerHTML = `<tr><td colspan="${withPair ? 7 : 6}" class="sub">No trades yet.</td></tr>`; return;
+  }
+  tb.innerHTML = trades.map(t => `<tr>
+      <td>${t.timestamp.replace("T", " ")}</td>
+      ${withPair ? `<td>${t.base}</td>` : ""}
+      <td class="${dirClass(t.action)}">${label(t.action)}</td>
+      <td>${fmt(t.quantity, 6)}</td>
+      <td>${fmtPrice(t.price)}</td>
+      <td>${t.reason}</td>
+      <td class="${cls(t.pnl)}">${isClose(t.action) ? sign(t.pnl) : "—"}</td>
+    </tr>`).join("");
+}
+
+function renderPairs(s) {
+  const grid = document.getElementById("pairGrid");
+  grid.innerHTML = s.symbols.map(sym => {
+    const p = sym.position;
+    let posHtml = `<div class="sub" style="margin-top:8px">Flat — no position.</div>`;
+    if (p) {
+      const d = `<span class="dir-${p.side}">${p.side.toUpperCase()} ${p.leverage}x</span>`;
+      posHtml = `<div style="margin-top:8px;font-size:13px">
+        ${d} · qty ${fmt(p.quantity, 5)} @ ${fmtPrice(p.entry_price)}<br>
+        <span class="sub">liq <span class="liq">${fmtPrice(p.liquidation_price)}</span>
+        · uPnL <span class="${cls(p.unrealized_pnl)}">${sign(p.unrealized_pnl)} ${QUOTE}</span></span>
+      </div>`;
+    }
+    return `<div class="card">
+      <div class="pairhead">
+        <div><b>${sym.base}</b> <span class="tag">${sym.symbol}</span></div>
+        <div class="price">${fmtPrice(sym.last_price)}</div>
+      </div>
+      <svg class="chart" id="spark-${sym.base}"></svg>
+      ${posHtml}
+      <div class="sub" style="margin-top:8px">Realized P&L:
+        <span class="${cls(sym.realized_pnl)}">${sign(sym.realized_pnl)} ${QUOTE}</span>
+        · ${sym.trades_count} fills</div>
+    </div>`;
+  }).join("");
+  s.symbols.forEach(sym => lineChart(document.getElementById("spark-" + sym.base),
+    sym.price_history.map(x => x[1]), { autoColor: true }));
+}
+
+function renderAnalytics(s) {
+  // Win/loss stats from closing trades.
+  const closes = s.trades.filter(t => t.action.startsWith("close"));
+  const wins = closes.filter(t => t.pnl > 0).length;
+  const losses = closes.filter(t => t.pnl < 0).length;
+  const winRate = closes.length ? (wins / closes.length * 100) : 0;
+  const best = closes.reduce((m, t) => Math.max(m, t.pnl), 0);
+  const worst = closes.reduce((m, t) => Math.min(m, t.pnl), 0);
+  const cards = [
+    ["Closed trades", `${closes.length}`, ""],
+    ["Win rate", `${fmt(winRate, 1)}%`, winRate >= 50 ? "up" : ""],
+    ["Wins / Losses", `${wins} / ${losses}`, ""],
+    ["Best trade", `${sign(best)} ${QUOTE}`, cls(best)],
+    ["Worst trade", `${sign(worst)} ${QUOTE}`, cls(worst)],
+    ["Overall P&L", `${sign(s.total_pnl)} ${QUOTE}`, cls(s.total_pnl)],
+  ];
+  document.getElementById("analyticsStats").innerHTML = cards.map(([l, v, c]) =>
+    `<div class="card"><div class="label">${l}</div><div class="value ${c}">${v}</div></div>`).join("");
+
+  barChart(document.getElementById("pairPnlChart"),
+    s.symbols.map(sym => ({ label: sym.base, value: sym.realized_pnl })), { labels: true });
+
+  const dt = document.getElementById("dailyTable");
+  dt.innerHTML = s.daily_pnl.length
+    ? [...s.daily_pnl].reverse().map(d =>
+        `<tr><td>${d.date}</td><td class="${cls(d.pnl)}">${sign(d.pnl)} ${QUOTE}</td></tr>`).join("")
+    : `<tr><td colspan="2" class="sub">No data yet.</td></tr>`;
+}
+
+// ---- settings -------------------------------------------------------------
+const FIELDS = [
+  ["trading", "dry_run", "Dry-run (paper)", "checkbox", "Uncheck to trade LIVE with real funds"],
+  ["trading", "poll_interval", "Poll interval (s)", "number", ""],
+  ["futures", "enabled", "Futures", "checkbox", "Off = spot, long-only"],
+  ["futures", "leverage", "Leverage", "number", "e.g. 5 for 5x"],
+  ["futures", "margin_mode", "Margin mode", "select", "", ["isolated", "cross"]],
+  ["futures", "allow_short", "Allow shorts", "checkbox", "Flip short on bearish crossover"],
+  ["strategy", "fast_period", "Fast MA period", "number", ""],
+  ["strategy", "slow_period", "Slow MA period", "number", "Must exceed fast period"],
+  ["risk", "position_size_pct", "Position size", "number", "Fraction of balance (0–1)"],
+  ["risk", "stop_loss_pct", "Stop loss", "number", "Fraction, e.g. 0.02 = 2%"],
+  ["risk", "take_profit_pct", "Take profit", "number", "Fraction, e.g. 0.04 = 4%"],
+  ["risk", "max_daily_loss_pct", "Max daily loss", "number", "Fraction, e.g. 0.05 = 5%"],
+  ["market", "timeframe", "Timeframe", "text", "e.g. 1m, 5m, 1h"],
+  ["market", "quote_currency", "Quote currency", "text", "USDC or BNFCR · needs restart"],
+  ["market", "symbols", "Symbols (comma-sep)", "text", "e.g. BTC,ETH,SOL · needs restart"],
+];
+async function loadSettings() {
+  const cfg = await (await fetch("/api/config")).json();
+  const form = document.getElementById("settingsForm");
+  form.innerHTML = FIELDS.map(([sec, key, label, type, hint, choices]) => {
+    const val = cfg[sec][key];
+    const id = `set-${sec}-${key}`;
+    if (type === "checkbox")
+      return `<div class="field check"><input type="checkbox" id="${id}" ${val ? "checked" : ""}
+        onchange="onDryChange()"><label for="${id}">${label}</label>
+        ${hint ? `<span class="hint">— ${hint}</span>` : ""}</div>`;
+    if (type === "select")
+      return `<div class="field"><label for="${id}">${label}</label>
+        <select id="${id}">${choices.map(c => `<option ${c === val ? "selected" : ""}>${c}</option>`).join("")}</select>
+        ${hint ? `<span class="hint">${hint}</span>` : ""}</div>`;
+    const value = Array.isArray(val) ? val.join(",") : val;
+    return `<div class="field"><label for="${id}">${label}</label>
+      <input type="${type}" id="${id}" value="${value}" step="any"
+        ${type === "checkbox" ? "" : ""}>
+      ${hint ? `<span class="hint">${hint}</span>` : ""}</div>`;
+  }).join("");
+  document.getElementById("saveMsg").textContent = "";
+  onDryChange();
+}
+function onDryChange() {
+  const dry = document.getElementById("set-trading-dry_run");
+  document.getElementById("liveWarn").classList.toggle("hidden", !dry || dry.checked);
+}
+async function saveSettings() {
+  const updates = {};
+  for (const [sec, key, , type] of FIELDS) {
+    const el = document.getElementById(`set-${sec}-${key}`);
+    if (!el) continue;
+    (updates[sec] = updates[sec] || {});
+    updates[sec][key] = type === "checkbox" ? el.checked : el.value;
+  }
+  const msg = document.getElementById("saveMsg");
+  msg.textContent = "Saving…"; msg.className = "";
+  try {
+    const r = await fetch("/api/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates) });
+    const data = await r.json();
+    if (data.ok) { msg.textContent = "Saved ✓"; msg.className = "msg-ok"; refresh(); }
+    else { msg.textContent = "Error: " + data.error; msg.className = "msg-err"; }
+  } catch (e) { msg.textContent = "Request failed"; msg.className = "msg-err"; }
+}
+
+async function stopBot() {
+  if (!confirm("Stop the trading engine? Open positions are NOT closed.")) return;
+  await fetch("/api/stop", { method: "POST" });
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 3000);
+window.addEventListener("resize", () => { if (lastState) render(lastState); });
+</script>
+</body>
+</html>
