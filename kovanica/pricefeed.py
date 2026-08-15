@@ -17,7 +17,7 @@ import logging
 import threading
 from typing import Callable, Dict, Optional
 
-log = logging.getLogger("cryptobot.pricefeed")
+log = logging.getLogger("kovanica.pricefeed")
 
 _PROD_WS = "wss://fstream.binance.com/stream"
 _TESTNET_WS = "wss://stream.binancefuture.com/stream"

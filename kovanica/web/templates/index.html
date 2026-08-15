@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>crypto-bot dashboard</title>
+  <title>Kovanica Bot</title>
   <style>
     :root {
       --bg: #0d1117; --panel: #161b22; --panel2: #1c232d; --border: #2a3340;
@@ -104,7 +104,7 @@
 <div class="wrap">
   <div class="row">
     <div>
-      <h1>crypto-bot</h1>
+      <h1>Kovanica Bot</h1>
       <div class="sub"><span id="statusline">—</span> · <span id="clock">—</span></div>
     </div>
     <div style="display:flex; gap:8px">
@@ -262,7 +262,7 @@
     <section class="card">
       <div class="panel-title">Bot parameters</div>
       <div class="sub">Strategy, risk, leverage and direction apply on the next poll.
-        Symbols and quote currency need a restart (e.g. <code>pm2 restart crypto-bot</code>).
+        Symbols and quote currency need a restart (e.g. <code>pm2 restart kovanica-bot</code>).
         Saved to <code>config.local.yaml</code> (git-ignored), so changes never conflict with updates.</div>
       <div id="liveWarn" class="warnbox hidden">⚠ Turning off dry-run enables LIVE trading with real funds.</div>
       <form class="settings" id="settingsForm" style="margin-top:14px" onsubmit="return false"></form>

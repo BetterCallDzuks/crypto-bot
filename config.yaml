@@ -1,5 +1,5 @@
 # ============================================================================
-# crypto-bot configuration
+# Kovanica Bot configuration
 # ----------------------------------------------------------------------------
 # SAFETY: `dry_run: true` means NO real orders are ever sent — trades are
 # simulated locally against live market prices (paper trading). Live trading
@@ -8,7 +8,7 @@
 #
 # Most of these values can also be changed live from the dashboard's Settings
 # page (which writes them back here). Changing the symbol list or quote
-# currency requires a restart (e.g. `pm2 restart crypto-bot`).
+# currency requires a restart (e.g. `pm2 restart kovanica-bot`).
 # ============================================================================
 
 exchange:

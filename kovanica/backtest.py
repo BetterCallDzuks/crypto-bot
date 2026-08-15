@@ -34,7 +34,7 @@ from .state import PortfolioState
 from .strategy import REGISTRY
 from .trader import TradingEngine
 
-log = logging.getLogger("cryptobot.backtest")
+log = logging.getLogger("kovanica.backtest")
 
 # Approximate start prices for the offline simulator (mirrors simulated.py).
 _START_PRICES = {

@@ -1,4 +1,4 @@
-# crypto-bot — one-command self-hosting.
+# Kovanica Bot — one-command self-hosting.
 #
 #   cp .env.example .env          # then add your Binance keys + DASHBOARD_PASSWORD
 #   touch config.local.yaml       # so dashboard settings persist across restarts
@@ -10,10 +10,10 @@
 # DEPLOY.md. Set DASHBOARD_PASSWORD in .env before exposing it anywhere.
 
 services:
-  crypto-bot:
+  kovanica-bot:
     build: .
-    image: crypto-bot
-    container_name: crypto-bot
+    image: kovanica-bot
+    container_name: kovanica-bot
     restart: unless-stopped
     env_file: .env
     environment:
