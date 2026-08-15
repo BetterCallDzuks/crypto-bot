@@ -103,7 +103,7 @@
   <div class="row">
     <div>
       <h1>crypto-bot</h1>
-      <div class="sub" id="statusline">—</div>
+      <div class="sub"><span id="statusline">—</span> · <span id="clock">—</span></div>
     </div>
     <div style="display:flex; gap:8px">
       {% if auth_active %}<a href="/logout"><button>Log out</button></a>{% endif %}
@@ -275,6 +275,41 @@
 </div>
 
 <script>
+// ---- time / timezone ------------------------------------------------------
+let TZ = "{{ timezone }}" || "Europe/Zagreb";
+function tzValid(tz) { try { new Intl.DateTimeFormat("en", { timeZone: tz }); return true; } catch (e) { return false; } }
+if (!tzValid(TZ)) TZ = undefined;   // fall back to the browser's local zone
+function fmtTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleString("en-GB", { timeZone: TZ, day: "2-digit",
+    month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false });
+}
+function agoText(iso) {
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (isNaN(s)) return "";
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s ago`;
+  return `${Math.floor(s / 3600)}h ago`;
+}
+function tzAbbrev() {
+  try {
+    return new Intl.DateTimeFormat("en-GB", { timeZone: TZ, timeZoneName: "short" })
+      .formatToParts(new Date()).find(p => p.type === "timeZoneName").value;
+  } catch (e) { return ""; }
+}
+function tickClock() {
+  const now = new Date().toLocaleString("en-GB", { timeZone: TZ, hour: "2-digit",
+    minute: "2-digit", second: "2-digit", hour12: false });
+  document.getElementById("clock").textContent = `${now} ${tzAbbrev()}`;
+  if (lastState && lastState.last_update)
+    document.getElementById("foot").textContent =
+      `Updated ${fmtTime(lastState.last_update)} (${agoText(lastState.last_update)})`
+      + (lastState.last_error ? ` · last error: ${lastState.last_error}` : "");
+}
+
 // ---- formatting helpers ---------------------------------------------------
 const fmt = (n, d = 2) => (n ?? 0).toLocaleString(undefined,
   { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -365,9 +400,7 @@ function render(s) {
   document.getElementById("badges").innerHTML = badges.join("");
 
   document.getElementById("stopBtn").disabled = s.status === "stopped";
-  let foot = `Updated ${s.last_update}`;
-  if (s.last_error) foot += ` · last error: ${s.last_error}`;
-  document.getElementById("foot").textContent = foot;
+  tickClock();   // refresh the "updated … ago" line immediately
 
   if (activeTab === "overview") renderOverview(s);
   else if (activeTab === "pairs") renderPairs(s);
@@ -409,7 +442,7 @@ function renderTrades(tb, trades, withPair) {
     tb.innerHTML = `<tr><td colspan="${withPair ? 7 : 6}" class="sub">No trades yet.</td></tr>`; return;
   }
   tb.innerHTML = trades.map(t => `<tr>
-      <td>${t.timestamp.replace("T", " ")}</td>
+      <td>${fmtTime(t.timestamp)}</td>
       ${withPair ? `<td>${t.base}</td>` : ""}
       <td class="${dirClass(t.action)}">${label(t.action)}</td>
       <td>${fmt(t.quantity, 6)}</td>
@@ -492,6 +525,7 @@ const FIELDS = [
   ["market", "timeframe", "Timeframe", "text", "e.g. 1m, 5m, 1h"],
   ["market", "quote_currency", "Quote currency", "text", "USDC or BNFCR · needs restart"],
   ["market", "symbols", "Symbols (comma-sep)", "text", "e.g. BTC,ETH,SOL · needs restart"],
+  ["web", "timezone", "Timezone", "text", "IANA name, e.g. Europe/Zagreb"],
 ];
 let STRATS = {}, CUR_STRAT = { name: "", params: {} };
 async function loadSettings() {
@@ -575,8 +609,12 @@ async function saveSettings() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates) });
     const data = await r.json();
-    if (data.ok) { msg.textContent = "Saved ✓"; msg.className = "msg-ok"; refresh(); }
-    else { msg.textContent = "Error: " + data.error; msg.className = "msg-err"; }
+    if (data.ok) {
+      msg.textContent = "Saved ✓"; msg.className = "msg-ok";
+      const newTz = data.settings && data.settings.web && data.settings.web.timezone;
+      if (newTz && tzValid(newTz)) { TZ = newTz; tickClock(); }   // apply timezone live
+      refresh();
+    } else { msg.textContent = "Error: " + data.error; msg.className = "msg-err"; }
   } catch (e) { msg.textContent = "Request failed"; msg.className = "msg-err"; }
 }
 
@@ -776,7 +814,9 @@ async function stopBot() {
 }
 
 refresh();
-setInterval(refresh, 3000);
+setInterval(refresh, 2000);   // near real-time dashboard updates
+setInterval(tickClock, 1000);  // live clock + "updated … ago" ticker
+tickClock();
 window.addEventListener("resize", () => { if (lastState) render(lastState); });
 </script>
 </body>

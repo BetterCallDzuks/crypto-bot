@@ -224,6 +224,7 @@ them back to `config.yaml`). Symbols and quote currency need a restart.
 | `risk`      | `max_daily_loss_pct`    | Halt new entries once the day's drawdown hits this             |
 | `web`       | `host` / `port`         | Dashboard bind address (default `127.0.0.1:4000`)              |
 | `web`       | `auth_enabled`          | Require a dashboard login (password comes from `.env`)         |
+| `web`       | `timezone`              | IANA timezone for on-screen times (default `Europe/Zagreb`)    |
 
 The ccxt market symbol is derived per asset from the quote currency:
 `BTC` + `USDC` → `BTC/USDC:USDC` for a perpetual. You can also put a full ccxt

@@ -104,6 +104,8 @@ class WebConfig:
     port: int = 4000
     # Require a login for the dashboard. Credentials come from .env, not YAML.
     auth_enabled: bool = True
+    # IANA timezone for displaying times on the dashboard. Croatia = CET/CEST.
+    timezone: str = "Europe/Zagreb"
 
 
 @dataclass
@@ -267,6 +269,9 @@ class Config:
                 "margin_mode": self.futures.margin_mode,
                 "allow_short": self.futures.allow_short,
             },
+            "web": {
+                "timezone": self.web.timezone,
+            },
         }
 
     def apply_updates(self, updates: dict[str, Any]) -> None:
@@ -279,7 +284,7 @@ class Config:
         allowed = self.editable_settings()
         targets = {
             "market": self.market, "trading": self.trading,
-            "risk": self.risk, "futures": self.futures,
+            "risk": self.risk, "futures": self.futures, "web": self.web,
         }
         # Snapshot everything we might touch so a failed validate() rolls back.
         strat_before = (self.strategy.name, dict(self.strategy.params))

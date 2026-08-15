@@ -81,3 +81,5 @@ web:
   # Require a login for the dashboard. Credentials go in .env
   # (DASHBOARD_USERNAME / DASHBOARD_PASSWORD), never here.
   auth_enabled: true
+  # IANA timezone for on-screen times. Croatia = Europe/Zagreb (CET/CEST).
+  timezone: Europe/Zagreb
