@@ -26,7 +26,7 @@ from flask import (
 )
 from werkzeug.security import check_password_hash
 
-from ..config import Config, save_config
+from ..config import Config, local_config_path, save_config
 from ..state import PortfolioState
 from ..trader import TradingEngine
 
@@ -116,7 +116,9 @@ def create_app(config: Config, state: PortfolioState,
             except Exception as exc:  # noqa: BLE001 - reported to the client
                 return jsonify({"ok": False, "error": str(exc)}), 400
             try:
-                save_config(config, config_path)
+                # Persist to the git-ignored overlay, never the tracked
+                # config.yaml — so runtime edits don't conflict with git pull.
+                save_config(config, local_config_path(config_path))
             except Exception as exc:  # noqa: BLE001
                 log.warning("Settings applied but could not be saved: %s", exc)
             if engine is not None:

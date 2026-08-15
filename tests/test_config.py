@@ -153,3 +153,25 @@ def test_save_and_reload_round_trip(tmp_path):
     reloaded = load_config(path, env_path=tmp_path / ".env")
     assert reloaded.futures.leverage == 7
     assert reloaded.market.symbols == ["BTC", "ETH"]
+
+
+def test_local_overlay_overrides_base_without_touching_it(tmp_path):
+    import yaml as _yaml
+
+    from cryptobot.config import load_config
+    base = tmp_path / "config.yaml"
+    base.write_text(_yaml.safe_dump({
+        "futures": {"leverage": 5},
+        "web": {"timezone": "UTC", "port": 4000},
+    }))
+    base_before = base.read_text()
+    # The overlay changes only some fields; the base file is never rewritten.
+    (tmp_path / "config.local.yaml").write_text(_yaml.safe_dump({
+        "futures": {"leverage": 3},
+        "web": {"timezone": "Europe/Zagreb"},
+    }))
+    cfg = load_config(base, env_path=tmp_path / ".env")
+    assert cfg.futures.leverage == 3                      # overlay wins
+    assert cfg.web.timezone == "Europe/Zagreb"
+    assert cfg.web.port == 4000                           # base value preserved
+    assert base.read_text() == base_before               # base untouched

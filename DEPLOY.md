@@ -215,10 +215,36 @@ profitable — not the full-period ranking; the latter is prone to curve-fitting
 > reads market data. It defaults to `--source exchange` (real data); use
 > `--source simulated` for an offline dry run.
 
+## Updating
+
+```bash
+cd crypto-bot
+git pull origin main
+./setup.sh                 # refresh deps (safe to re-run)
+pm2 restart crypto-bot
+```
+
+Settings changed from the dashboard are written to a git-ignored
+`config.local.yaml` overlay, **not** the tracked `config.yaml`, so `git pull`
+never conflicts with your live settings. The overlay wins over `config.yaml`
+for any field it sets.
+
+> If an older install still has local edits in the tracked `config.yaml` and a
+> pull is refused ("Your local changes … would be overwritten"), back them up
+> and take the repo version once — after that, dashboard changes go to the
+> overlay and pulls stay clean:
+> ```bash
+> cp config.yaml config.yaml.bak
+> git checkout -- config.yaml
+> git pull origin main
+> ```
+
 ## Troubleshooting
 
 - `pm2 logs crypto-bot` — see startup errors and trade activity.
 - `cat reports/latest.md` — the newest walk-forward research report.
+- **`git pull` refuses over `config.yaml`** — see *Updating* above; your
+  settings live in `config.local.yaml` now.
 - **"No space left on device"** — clear old logs in `./data/` and PM2 logs
   (`pm2 flush`).
 - **Config error on start** — the message names the offending field; fix it in
