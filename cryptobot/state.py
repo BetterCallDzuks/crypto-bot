@@ -120,6 +120,7 @@ class PortfolioState:
 
         self.trading_halted = False
         self.strategy_name = ""
+        self.live_feed = False          # true when a WebSocket feed is connected
         self.status = "starting"
         self.last_update: str = _iso(_now())
         self.last_error: Optional[str] = None
@@ -245,6 +246,10 @@ class PortfolioState:
         with self._lock:
             self.strategy_name = name
 
+    def set_live(self, live: bool) -> None:
+        with self._lock:
+            self.live_feed = live
+
     def update_meta(self, quote_currency: str, futures: bool,
                     leverage: int) -> None:
         """Reflect settings changes (quote/leverage) applied at runtime."""
@@ -292,6 +297,7 @@ class PortfolioState:
                 "futures": self.futures,
                 "leverage": self.leverage,
                 "strategy": self.strategy_name,
+                "live_feed": self.live_feed,
                 "trading_halted": self.trading_halted,
                 "quote_currency": self.quote_currency,
                 "starting_equity": self.starting_equity,

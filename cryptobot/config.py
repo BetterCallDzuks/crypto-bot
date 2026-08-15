@@ -44,6 +44,9 @@ class MarketConfig:
     # Base assets to trade. The ccxt market symbol is derived from the quote
     # currency (e.g. BTC + USDC -> "BTC/USDC:USDC" for a perpetual).
     symbols: list[str] = field(default_factory=lambda: list(DEFAULT_SYMBOLS))
+    # Stream live mark prices over WebSocket (Binance only) for real-time risk
+    # checks and dashboard prices. Ignored for the simulated source.
+    live_feed: bool = True
 
 
 @dataclass

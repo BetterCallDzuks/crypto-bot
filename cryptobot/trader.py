@@ -34,15 +34,21 @@ log = logging.getLogger("cryptobot.trader")
 
 
 class TradingEngine:
-    def __init__(self, config: Config, exchange, state: PortfolioState) -> None:
+    def __init__(self, config: Config, exchange, state: PortfolioState,
+                 price_feed=None) -> None:
         self.config = config
         self.exchange = exchange
         self.state = state
+        self.price_feed = price_feed
         self.bases = list(state.symbols.keys())
         self._settings_lock = threading.Lock()
+        # Serializes all position mutations across the strategy loop and the
+        # (optional) real-time risk monitor so they never double-act.
+        self._trade_lock = threading.RLock()
         self.reload_from_config()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._monitor_thread: threading.Thread | None = None
 
     # -- runtime settings --------------------------------------------------
     def reload_from_config(self) -> None:
@@ -82,13 +88,49 @@ class TradingEngine:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
+        if self.price_feed is not None:
+            self.price_feed.start()
+            self._monitor_thread = threading.Thread(
+                target=self._risk_monitor_run, name="risk-monitor", daemon=True)
+            self._monitor_thread.start()
         self._thread = threading.Thread(
             target=self._run, name="trading-engine", daemon=True
         )
         self._thread.start()
 
+    def _risk_monitor_run(self) -> None:
+        """Check exits against the live mark price between strategy polls.
+
+        Runs only when a price feed is attached. It never opens positions — it
+        only protects open ones (liquidation / stop-loss / take-profit) using
+        fresh prices, so a fast move is acted on in ~1s rather than at the next
+        30s poll.
+        """
+        interval = min(2, self.config.trading.poll_interval)
+        while not self._stop.is_set():
+            try:
+                if self.price_feed.connected:
+                    self.state.set_live(True)
+                    _, limits, _, _ = self._settings()
+                    for base in self.bases:
+                        price = self.price_feed.get(base)
+                        if price is None:
+                            continue
+                        self.state.set_price(base, price)
+                        with self._trade_lock:
+                            pos = self.state.symbols[base].position
+                            if pos is not None:
+                                self._check_exits(base, pos, price, limits)
+                else:
+                    self.state.set_live(False)
+            except Exception:  # noqa: BLE001 - never let the monitor die
+                log.exception("Error in risk monitor")
+            self._stop.wait(interval)
+
     def stop(self) -> None:
         self._stop.set()
+        if self.price_feed is not None:
+            self.price_feed.stop()
         if self._thread:
             self._thread.join(timeout=self.config.trading.poll_interval + 5)
         self.state.set_status("stopped")
@@ -123,22 +165,24 @@ class TradingEngine:
         self.state.record_equity_point()
 
     def _process(self, base, strategy, limits, leverage, allow_short, halted):
+        # Network fetch happens outside the trade lock so the real-time risk
+        # monitor is never blocked on I/O.
         closes = self.exchange.fetch_closes(base, limit=strategy.warmup + 5)
         if not closes:
             return
         price = closes[-1]
         self.state.set_price(base, price)
 
-        pos = self.state.symbols[base].position
-        if pos is not None and self._check_exits(base, pos, price, limits):
-            return
-
-        signal = strategy.evaluate(closes)
-        if signal is Signal.BUY:
-            self._go_long(base, price, leverage, limits, halted)
-        elif signal is Signal.SELL:
-            self._go_short_or_flat(base, price, leverage, limits,
-                                   allow_short, halted)
+        with self._trade_lock:
+            pos = self.state.symbols[base].position
+            if pos is not None and self._check_exits(base, pos, price, limits):
+                return
+            signal = strategy.evaluate(closes)
+            if signal is Signal.BUY:
+                self._go_long(base, price, leverage, limits, halted)
+            elif signal is Signal.SELL:
+                self._go_short_or_flat(base, price, leverage, limits,
+                                       allow_short, halted)
 
     # -- exits -------------------------------------------------------------
     def _check_exits(self, base, pos, price, limits) -> bool:

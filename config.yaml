@@ -25,6 +25,10 @@ market:
   # as BASE/QUOTE:QUOTE for perpetual futures, e.g. BTC/USDC:USDC.
   quote_currency: USDC
   timeframe: 1m
+  # Stream live mark prices over WebSocket (Binance only) for real-time
+  # stop-loss/liquidation checks and live dashboard prices. Ignored when
+  # source is simulated. Set false to use REST polling only.
+  live_feed: true
   # Base assets to trade. Add/remove freely; each trades independently.
   symbols:
     - BTC

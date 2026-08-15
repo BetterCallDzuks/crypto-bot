@@ -34,6 +34,8 @@
       border-color: var(--violet); }
     .badge.strat { background: rgba(210,153,34,.10); color: var(--warn);
       border-color: var(--warn); }
+    .badge.livefeed { background: rgba(63,185,80,.15); color: var(--up);
+      border-color: var(--up); }
     .badge.halted { background: rgba(210,153,34,.15); color: var(--warn);
       border-color: var(--warn); }
     button { background: var(--panel2); color: var(--text);
@@ -395,6 +397,7 @@ function render(s) {
   badges.push(s.futures ? `<span class="badge lev">FUTURES ${s.leverage}x</span>`
                         : `<span class="badge">SPOT</span>`);
   badges.push(`<span class="badge quote">${QUOTE}</span>`);
+  if (s.live_feed) badges.push(`<span class="badge livefeed">● LIVE</span>`);
   if (s.strategy) badges.push(`<span class="badge strat">${s.strategy}</span>`);
   badges.push(`<span class="badge">${s.num_symbols} pairs · ${s.open_positions} open</span>`);
   if (s.trading_halted) badges.push(`<span class="badge halted">DAILY LOSS LIMIT — entries halted</span>`);

@@ -212,6 +212,7 @@ quote currency need a restart.
 | `market`    | `quote_currency`        | Margin/quote asset — **USDC** or **BNFCR** (EEA; not USDT)     |
 | `market`    | `symbols`               | List of base assets to trade (BTC, ETH, XRP, SOL, DOGE, …)     |
 | `market`    | `timeframe`             | Candle size for the strategy (`1m`, `5m`, `1h`, …)             |
+| `market`    | `live_feed`             | Stream live mark prices over WebSocket (Binance) for real-time risk checks |
 | `exchange`  | `id`                    | Any [ccxt](https://github.com/ccxt/ccxt) exchange id (binance) |
 | `exchange`  | `sandbox`               | Use the exchange testnet when available                        |
 | `futures`   | `enabled`               | Trade leveraged perpetual futures; `false` = spot (long-only)  |
