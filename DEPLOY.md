@@ -65,11 +65,27 @@ pm2 startup                       # print a command; run it so PM2 auto-starts o
 ## 5. Accessing the dashboard from anywhere
 
 > ### ⚠️ Read this first
-> The dashboard has **no login**, and it can **toggle live trading** and change
-> risk parameters. Anyone who can open it can move your money. So the rule is:
-> **never expose port 4000 directly to the public internet.** By default the
-> bot binds to `127.0.0.1` (localhost only) on purpose. Use one of the methods
-> below to reach it remotely without leaving it open to the world.
+> The dashboard can **toggle live trading** and change risk parameters, so it
+> ships with a **login** (see below) and binds to `127.0.0.1` by default. The
+> bot **refuses to bind to a non-local address without a password set**, so you
+> can't accidentally expose it wide open. Still, prefer a private path
+> (Tailscale) over a public URL.
+
+### Enabling the dashboard login
+
+Set a password in `.env` — it's hashed in memory, never stored in plaintext:
+
+```bash
+# in .env
+DASHBOARD_USERNAME=admin
+DASHBOARD_PASSWORD=your-strong-password
+# optional: keep sessions across restarts
+SECRET_KEY=paste-output-of: python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+`pm2 restart crypto-bot` to apply. Login is required whenever a password is
+set (and `web.auth_enabled: true`, the default). Without a password the
+dashboard only runs on localhost, for the offline quickstart.
 
 Pick the option that fits how you want to connect. Ordered easiest/safest
 first.
@@ -104,12 +120,14 @@ account. Then reach the dashboard at the VPS's Tailscale name/IP, e.g.
 `http://YOUR-VPS.tailXXXX.ts.net:4000`.
 
 For this to work the dashboard must listen on the VPS's network interface, not
-only localhost. Set it in `config.yaml` and keep the public firewall closed:
+only localhost — and it needs a password (the bot enforces this). Set a
+`DASHBOARD_PASSWORD` in `.env` (see above), then in `config.yaml`:
 
 ```yaml
 web:
   host: 0.0.0.0     # listen on all interfaces (Tailscale reaches it)
   port: 4000
+  auth_enabled: true
 ```
 
 ```bash
@@ -160,9 +178,11 @@ prefer Option A or B if you don't specifically need a public URL.
 | Want easy access from phone + laptop        | Option B (Tailscale) |
 | Need a shareable `https://` URL             | Option C (Caddy + auth) |
 
-Whatever you choose, **do not** simply set `host: 0.0.0.0` and open port 4000
-in the firewall with no auth — that publishes a trading control panel to the
-internet.
+Whatever you choose, keep a `DASHBOARD_PASSWORD` set once the dashboard leaves
+localhost, and don't open port 4000 to the public internet unless it's behind
+HTTPS + auth (Option C). The bot already refuses to bind to a non-local address
+without a password, but a private path (Tailscale) is still safer than a public
+one.
 
 ## Troubleshooting
 

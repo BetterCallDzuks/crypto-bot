@@ -25,3 +25,7 @@ echo "  • Paper mode works out of the box (config.yaml: market.source = simula
 echo "  • Start under PM2:   pm2 start ecosystem.config.js"
 echo "  • Or run directly:   ./.venv/bin/python run.py"
 echo "  • Dashboard:         http://127.0.0.1:4000"
+echo
+echo "  Before exposing the dashboard (e.g. over Tailscale), set a login in .env:"
+echo "    DASHBOARD_PASSWORD=your-strong-password"
+echo "  See DEPLOY.md for the Tailscale + authentication walkthrough."

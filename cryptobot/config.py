@@ -12,6 +12,7 @@ the dashboard edits the non-secret config at runtime and saves it back to
 from __future__ import annotations
 
 import os
+import secrets
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -79,6 +80,24 @@ class FuturesConfig:
 class WebConfig:
     host: str = "127.0.0.1"
     port: int = 4000
+    # Require a login for the dashboard. Credentials come from .env, not YAML.
+    auth_enabled: bool = True
+
+
+@dataclass
+class AuthConfig:
+    """Dashboard login secrets, sourced from .env — never written to YAML."""
+    username: str = "admin"
+    password_hash: str = ""       # werkzeug hash of DASHBOARD_PASSWORD
+    secret_key: str = ""          # Flask session signing key
+    ephemeral_secret: bool = False  # true if secret_key was auto-generated
+
+    @property
+    def has_password(self) -> bool:
+        return bool(self.password_hash)
+
+
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
 
 
 @dataclass
@@ -90,6 +109,17 @@ class Config:
     risk: RiskConfig = field(default_factory=RiskConfig)
     futures: FuturesConfig = field(default_factory=FuturesConfig)
     web: WebConfig = field(default_factory=WebConfig)
+    auth: AuthConfig = field(default_factory=AuthConfig)
+
+    # -- auth helpers ------------------------------------------------------
+    @property
+    def auth_active(self) -> bool:
+        """Login is enforced only when enabled AND a password is configured."""
+        return self.web.auth_enabled and self.auth.has_password
+
+    @property
+    def host_is_local(self) -> bool:
+        return self.web.host in LOCAL_HOSTS
 
     # -- derived helpers ---------------------------------------------------
     def market_symbol(self, base: str) -> str:
@@ -160,6 +190,15 @@ class Config:
                 "Live trading is enabled (trading.dry_run = false) but no API "
                 "credentials were found. Set EXCHANGE_API_KEY and "
                 "EXCHANGE_API_SECRET in your .env file, or set dry_run: true."
+            )
+
+        # Exposure guard: never bind the dashboard to a non-local address
+        # without a login. Localhost-only may run open (dev/quickstart).
+        if not self.host_is_local and not self.auth_active:
+            raise ValueError(
+                f"Refusing to serve the dashboard on {self.web.host!r} without "
+                "authentication. Set DASHBOARD_PASSWORD in .env (and keep "
+                "web.auth_enabled: true), or bind web.host to 127.0.0.1."
             )
 
     # -- runtime-editable settings (the dashboard settings page) ----------
@@ -277,6 +316,8 @@ def load_config(
         api_password=os.environ.get("EXCHANGE_API_PASSWORD", ""),
     )
 
+    auth = _load_auth_from_env()
+
     cfg = Config(
         exchange=exchange,
         market=MarketConfig(**_section(raw, "market")),
@@ -285,9 +326,33 @@ def load_config(
         risk=RiskConfig(**_section(raw, "risk")),
         futures=FuturesConfig(**_section(raw, "futures")),
         web=WebConfig(**_section(raw, "web")),
+        auth=auth,
     )
     cfg.validate()
     return cfg
+
+
+def _load_auth_from_env() -> AuthConfig:
+    """Build dashboard auth from environment secrets.
+
+    DASHBOARD_PASSWORD is hashed in memory (never stored in plaintext beyond
+    the process). A missing SECRET_KEY is auto-generated per run — sessions
+    then reset on restart, which is fine for a single-user bot; set SECRET_KEY
+    in .env to keep logins across restarts.
+    """
+    from werkzeug.security import generate_password_hash
+
+    password = os.environ.get("DASHBOARD_PASSWORD", "")
+    secret = os.environ.get("SECRET_KEY", "")
+    ephemeral = not secret
+    if ephemeral:
+        secret = secrets.token_hex(32)
+    return AuthConfig(
+        username=os.environ.get("DASHBOARD_USERNAME", "admin"),
+        password_hash=generate_password_hash(password) if password else "",
+        secret_key=secret,
+        ephemeral_secret=ephemeral,
+    )
 
 
 def save_config(cfg: Config, config_path: str | os.PathLike[str] = "config.yaml"

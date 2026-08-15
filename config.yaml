@@ -60,5 +60,11 @@ risk:
   max_daily_loss_pct: 0.05    # halt new entries after a 5% daily drawdown
 
 web:
+  # 127.0.0.1 = localhost only (use an SSH tunnel or Tailscale to reach it
+  # remotely). Set 0.0.0.0 to listen on all interfaces for Tailscale access —
+  # but only with a DASHBOARD_PASSWORD set (the bot enforces this).
   host: 127.0.0.1
   port: 4000
+  # Require a login for the dashboard. Credentials go in .env
+  # (DASHBOARD_USERNAME / DASHBOARD_PASSWORD), never here.
+  auth_enabled: true

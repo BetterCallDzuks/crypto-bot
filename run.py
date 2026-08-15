@@ -75,6 +75,14 @@ def main() -> int:
     engine.start()
 
     app = create_app(config, state, engine)
+    if config.auth_active:
+        log.info("Dashboard login is ENABLED (user: %s).", config.auth.username)
+        if config.auth.ephemeral_secret:
+            log.info("No SECRET_KEY set — sessions reset on restart. Set "
+                     "SECRET_KEY in .env to keep logins across restarts.")
+    elif config.host_is_local:
+        log.warning("Dashboard has NO login (localhost only). Set "
+                    "DASHBOARD_PASSWORD in .env before exposing it (Tailscale).")
     log.info("Dashboard: http://%s:%d  (%d symbols, quote %s)",
              config.web.host, config.web.port, len(bases),
              config.market.quote_currency)

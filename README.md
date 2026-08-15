@@ -23,6 +23,11 @@ The dashboard (default **port 4000**) has four tabs:
 - **Settings** — change the bot's parameters live (leverage, risk limits,
   strategy periods, symbols, dry-run, …) and save them without touching files.
 
+The dashboard has an optional **login** (set `DASHBOARD_PASSWORD` in `.env`).
+It's required before the dashboard can bind to any non-local address, so it
+can't be exposed unprotected. See [DEPLOY.md](DEPLOY.md) for reaching it
+remotely via Tailscale.
+
 By default it runs in **paper mode against a simulated market**, so you can
 launch it and watch it trade immediately — no network, no API keys, no risk.
 Live trading is strictly opt-in. It also trades spot (long-only) with
@@ -129,6 +134,7 @@ them back to `config.yaml`). Symbols and quote currency need a restart.
 | `risk`      | `take_profit_pct`       | Exit when price moves this far *in favor* of the position      |
 | `risk`      | `max_daily_loss_pct`    | Halt new entries once the day's drawdown hits this             |
 | `web`       | `host` / `port`         | Dashboard bind address (default `127.0.0.1:4000`)              |
+| `web`       | `auth_enabled`          | Require a dashboard login (password comes from `.env`)         |
 
 The ccxt market symbol is derived per asset from the quote currency:
 `BTC` + `USDC` → `BTC/USDC:USDC` for a perpetual. You can also put a full ccxt
