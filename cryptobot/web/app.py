@@ -185,6 +185,39 @@ def create_app(config: Config, state: PortfolioState,
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True, **result, "source": config.market.source})
 
+    # -- research reports --------------------------------------------------
+    @app.route("/api/research", methods=["GET"])
+    def api_research_get():
+        from pathlib import Path
+        d = Path("reports")
+        files = sorted((p.name for p in d.glob("walkforward-*.md")),
+                       reverse=True) if d.exists() else []
+        # Optionally read a specific dated report (validated against the glob).
+        name = request.args.get("file")
+        target = d / "latest.md"
+        if name and name in files:
+            target = d / name
+        if target.exists():
+            return jsonify({"exists": True, "content": target.read_text(),
+                            "name": target.name, "reports": files})
+        return jsonify({"exists": False, "reports": files})
+
+    @app.route("/api/research/run", methods=["POST"])
+    def api_research_run():
+        from ..research import generate
+        body = request.get_json(silent=True) or {}
+        bars = max(400, min(int(body.get("bars", 3000)), 5000))
+        folds = max(1, min(int(body.get("folds", 4)), 10))
+        source = body.get("source") or config.market.source
+        try:
+            result = generate(config, bars=bars, folds=folds,
+                              objective=str(body.get("objective", "profit_factor")),
+                              source=source)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "content": result["report"],
+                        "name": "latest.md", "generated_at": result["generated_at"]})
+
     return app
 
 

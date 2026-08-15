@@ -87,6 +87,15 @@
     .foot { color: var(--muted); font-size: 12px; margin-top: 16px; }
     .warnbox { background: rgba(210,153,34,.10); border: 1px solid var(--warn);
       color: var(--warn); border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-top: 8px; }
+    .report h1 { font-size: 20px; margin: 0 0 12px; }
+    .report h2 { font-size: 15px; margin: 20px 0 10px; color: var(--accent); }
+    .report ul { margin: 8px 0; padding-left: 20px; }
+    .report li { margin: 3px 0; }
+    .report blockquote { border-left: 3px solid var(--warn); margin: 14px 0;
+      padding: 8px 12px; color: var(--muted); background: rgba(210,153,34,.06); }
+    .report table { margin: 10px 0; }
+    .report code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+    .report hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   </style>
 </head>
 <body>
@@ -109,6 +118,7 @@
     <button data-tab="pairs" onclick="showTab('pairs')">Pairs</button>
     <button data-tab="analytics" onclick="showTab('analytics')">Analytics</button>
     <button data-tab="backtest" onclick="showTab('backtest'); initBacktest()">Backtest</button>
+    <button data-tab="research" onclick="showTab('research'); initResearch()">Research</button>
     <button data-tab="settings" onclick="showTab('settings'); loadSettings()">Settings</button>
   </nav>
 
@@ -222,6 +232,29 @@
     </section>
   </div>
 
+  <!-- RESEARCH -->
+  <div id="tab-research" class="hidden">
+    <section class="card">
+      <div class="panel-title">Walk-forward research report</div>
+      <div class="sub">Shows the latest report written by <code>research.py</code>
+        (schedule it via cron — see DEPLOY.md). Or run one now.</div>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:14px">
+        <div class="field"><label for="rsBars">Bars</label>
+          <input type="number" id="rsBars" value="3000" min="400" max="5000" step="100" style="width:100px"></div>
+        <div class="field"><label for="rsFolds">Folds</label>
+          <input type="number" id="rsFolds" value="4" min="1" max="10" style="width:80px"></div>
+        <button class="primary" onclick="runResearch()">Run now</button>
+        <div class="field"><label for="rsPast">Past reports</label>
+          <select id="rsPast" onchange="loadResearch(this.value)"><option value="">latest</option></select></div>
+        <button onclick="loadResearch('')">Refresh latest</button>
+        <span id="rsMsg" class="sub"></span>
+      </div>
+    </section>
+    <section class="card" id="rsReportCard">
+      <div id="rsReport" class="report">Loading…</div>
+    </section>
+  </div>
+
   <!-- SETTINGS -->
   <div id="tab-settings" class="hidden">
     <section class="card">
@@ -297,7 +330,7 @@ function getVar(name) {
 let activeTab = "overview";
 function showTab(name) {
   activeTab = name;
-  ["overview", "pairs", "analytics", "backtest", "settings"].forEach(t =>
+  ["overview", "pairs", "analytics", "backtest", "research", "settings"].forEach(t =>
     document.getElementById("tab-" + t).classList.toggle("hidden", t !== name));
   document.querySelectorAll("nav button").forEach(b =>
     b.classList.toggle("active", b.dataset.tab === name));
@@ -664,6 +697,75 @@ async function runWalkForward() {
         <td class="down">${fmt(f.test_max_drawdown_pct)}%</td>
         <td>${f.test_trades}</td>
       </tr>`).join("");
+  } catch (e) { msg.textContent = "Request failed"; }
+}
+
+// ---- research report ------------------------------------------------------
+const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function mdInline(t) {
+  return esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+               .replace(/`(.+?)`/g, "<code>$1</code>");
+}
+function renderMarkdown(md) {
+  const out = [];
+  const lines = md.split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^\|/.test(line) && i + 1 < lines.length && /^\|[-:\s|]+\|/.test(lines[i + 1])) {
+      const header = line.split("|").slice(1, -1).map(c => c.trim());
+      i += 2;
+      const rows = [];
+      while (i < lines.length && /^\|/.test(lines[i])) {
+        rows.push(lines[i].split("|").slice(1, -1).map(c => c.trim())); i++;
+      }
+      out.push(`<div style="overflow-x:auto"><table><thead><tr>${
+        header.map(h => `<th>${mdInline(h)}</th>`).join("")}</tr></thead><tbody>${
+        rows.map(r => `<tr>${r.map(c => `<td>${mdInline(c)}</td>`).join("")}</tr>`).join("")
+      }</tbody></table></div>`);
+      continue;
+    }
+    if (/^# /.test(line)) out.push(`<h1>${mdInline(line.slice(2))}</h1>`);
+    else if (/^## /.test(line)) out.push(`<h2>${mdInline(line.slice(3))}</h2>`);
+    else if (/^---\s*$/.test(line)) out.push("<hr>");
+    else if (/^> /.test(line)) out.push(`<blockquote>${mdInline(line.slice(2))}</blockquote>`);
+    else if (/^[-*] /.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*] /.test(lines[i])) { items.push(lines[i].slice(2)); i++; }
+      out.push(`<ul>${items.map(x => `<li>${mdInline(x)}</li>`).join("")}</ul>`);
+      continue;
+    }
+    else if (line.trim()) out.push(`<p>${mdInline(line)}</p>`);
+    i++;
+  }
+  return out.join("");
+}
+let researchInit = false;
+async function initResearch() { if (!researchInit) { researchInit = true; loadResearch(""); } }
+async function loadResearch(file) {
+  const el = document.getElementById("rsReport");
+  el.innerHTML = "Loading…";
+  try {
+    const url = "/api/research" + (file ? "?file=" + encodeURIComponent(file) : "");
+    const data = await (await fetch(url)).json();
+    const sel = document.getElementById("rsPast");
+    sel.innerHTML = `<option value="">latest</option>` +
+      (data.reports || []).map(n => `<option value="${n}" ${n === file ? "selected" : ""}>${n}</option>`).join("");
+    el.innerHTML = data.exists ? renderMarkdown(data.content)
+      : `<span class="sub">No report yet. Click “Run now”, or schedule research.py via cron (see DEPLOY.md).</span>`;
+  } catch (e) { el.innerHTML = `<span class="sub">Failed to load report.</span>`; }
+}
+async function runResearch() {
+  const msg = document.getElementById("rsMsg");
+  msg.textContent = "Running research… (real data can take a while)";
+  try {
+    const data = await (await fetch("/api/research/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bars: Number(document.getElementById("rsBars").value),
+                             folds: Number(document.getElementById("rsFolds").value) }) })).json();
+    if (!data.ok) { msg.textContent = "Error: " + data.error; return; }
+    msg.textContent = "Done."; document.getElementById("rsReport").innerHTML = renderMarkdown(data.content);
+    loadResearch("");   // refresh the past-reports dropdown
   } catch (e) { msg.textContent = "Request failed"; }
 }
 

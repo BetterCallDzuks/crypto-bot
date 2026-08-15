@@ -184,9 +184,41 @@ HTTPS + auth (Option C). The bot already refuses to bind to a non-local address
 without a password, but a private path (Tailscale) is still safer than a public
 one.
 
+## Scheduled research reports
+
+`research.py` runs a **walk-forward analysis** (plus a full-period ranking for
+context) on real exchange data and writes a timestamped Markdown report to
+`reports/`. Run it on a schedule so you're always judging strategies on fresh
+data — this is how you decide what (if anything) is worth trading, without
+curve-fitting one lucky window.
+
+Run it once by hand first:
+
+```bash
+./.venv/bin/python research.py --bars 5000 --folds 6
+cat reports/latest.md            # the most recent report
+```
+
+Then schedule it with cron (runs on the VPS, which can reach the exchange).
+`crontab -e` and add — e.g. every Monday at 06:00 UTC:
+
+```cron
+0 6 * * 1 cd /home/YOU/crypto-bot && ./.venv/bin/python research.py --bars 5000 --folds 6 >> data/research.log 2>&1
+```
+
+Each run overwrites `reports/latest.md` and keeps a dated copy
+(`reports/walkforward-YYYYMMDD-HHMM.md`). `reports/` is git-ignored. Read the
+**out-of-sample** section — the compounded return and how many folds were
+profitable — not the full-period ranking; the latter is prone to curve-fitting.
+
+> `research.py` always paper-tests (`dry_run`) and never places orders — it only
+> reads market data. It defaults to `--source exchange` (real data); use
+> `--source simulated` for an offline dry run.
+
 ## Troubleshooting
 
 - `pm2 logs crypto-bot` — see startup errors and trade activity.
+- `cat reports/latest.md` — the newest walk-forward research report.
 - **"No space left on device"** — clear old logs in `./data/` and PM2 logs
   (`pm2 flush`).
 - **Config error on start** — the message names the offending field; fix it in

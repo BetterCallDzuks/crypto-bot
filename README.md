@@ -260,7 +260,8 @@ symbol directly in the `symbols` list to override the mapping.
 
 ```
 run.py                  Entrypoint: wires config → exchange → engine → web
-backtest.py             CLI backtester (single strategy or compare-all)
+backtest.py             CLI backtester (single / compare / walk-forward)
+research.py             Scheduled walk-forward report generator (cron)
 ecosystem.config.js     PM2 process definition
 setup.sh                One-time venv + deps + .env bootstrap
 cryptobot/
