@@ -94,7 +94,10 @@
       <h1>crypto-bot</h1>
       <div class="sub" id="statusline">—</div>
     </div>
-    <button id="stopBtn" class="danger" onclick="stopBot()">Stop bot</button>
+    <div style="display:flex; gap:8px">
+      {% if auth_active %}<a href="/logout"><button>Log out</button></a>{% endif %}
+      <button id="stopBtn" class="danger" onclick="stopBot()">Stop bot</button>
+    </div>
   </div>
 
   <div class="badges" id="badges"></div>
@@ -235,8 +238,11 @@ function showTab(name) {
 // ---- main render ----------------------------------------------------------
 let lastState = null;
 async function refresh() {
-  try { lastState = await (await fetch("/api/state")).json(); }
-  catch (e) { document.getElementById("foot").textContent = "Connection lost…"; return; }
+  try {
+    const r = await fetch("/api/state");
+    if (r.status === 401) { window.location = "/login"; return; }
+    lastState = await r.json();
+  } catch (e) { document.getElementById("foot").textContent = "Connection lost…"; return; }
   render(lastState);
 }
 
