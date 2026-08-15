@@ -48,8 +48,11 @@
     th:first-child, td:first-child { text-align: left; }
     th { color: var(--muted); font-weight: 600; font-size: 12px;
       text-transform: uppercase; }
-    .side-buy { color: var(--up); font-weight: 600; }
-    .side-sell { color: var(--down); font-weight: 600; }
+    .dir-long { color: var(--up); font-weight: 600; }
+    .dir-short { color: var(--down); font-weight: 600; }
+    .badge.lev { background: rgba(88,166,255,.14); color: var(--accent);
+      border-color: var(--accent); }
+    .liq { color: var(--warn); }
     .panel-title { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
     .row { display: flex; justify-content: space-between; align-items: center; }
     button {
@@ -83,7 +86,7 @@
     <div class="panel-title">Recent trades</div>
     <table>
       <thead>
-        <tr><th>Time</th><th>Side</th><th>Qty</th><th>Price</th>
+        <tr><th>Time</th><th>Action</th><th>Qty</th><th>Price</th>
           <th>Reason</th><th>P&amp;L</th></tr>
       </thead>
       <tbody id="trades">
@@ -117,6 +120,9 @@
       badges.push(s.dry_run
         ? `<span class="badge paper">PAPER (dry-run)</span>`
         : `<span class="badge live">LIVE TRADING</span>`);
+      badges.push(s.futures
+        ? `<span class="badge lev">FUTURES ${s.leverage}x</span>`
+        : `<span class="badge">SPOT</span>`);
       if (s.trading_halted)
         badges.push(`<span class="badge halted">DAILY LOSS LIMIT — entries halted</span>`);
       document.getElementById("badges").innerHTML = badges.join("");
@@ -125,7 +131,8 @@
       const cards = [
         ["Last price", `${fmt(s.last_price)} ${q}`, ""],
         ["Equity", `${fmt(s.equity)} ${q}`, ""],
-        ["Cash balance", `${fmt(s.quote_balance)} ${q}`, ""],
+        [s.futures ? "Free margin" : "Cash balance",
+         `${fmt(s.quote_balance)} ${q}`, ""],
         ["Realized P&L", `${sign(s.realized_pnl)} ${q}`, cls(s.realized_pnl)],
         ["Total P&L", `${sign(s.total_pnl)} ${q}`, cls(s.total_pnl)],
         ["Return", `${sign(s.total_return_pct)}%`, cls(s.total_pnl)],
@@ -138,27 +145,34 @@
       const posEl = document.getElementById("position");
       if (s.position) {
         const p = s.position;
+        const dir = `<span class="dir-${p.side}">${p.side.toUpperCase()}</span>`;
+        const lev = p.leverage > 1 ? ` ${p.leverage}x` : "";
         posEl.innerHTML =
-          `<b>${fmt(p.quantity, 6)}</b> @ entry <b>${fmt(p.entry_price)}</b> ${q}
-           · value ${fmt(p.value)} ${q}
+          `${dir}${lev} · <b>${fmt(p.quantity, 6)}</b> @ entry
+           <b>${fmt(p.entry_price)}</b> ${q}
+           · notional ${fmt(p.notional)} · margin ${fmt(p.margin)} ${q}
+           · liq <span class="liq">${fmt(p.liquidation_price)}</span>
            · unrealized <span class="${cls(p.unrealized_pnl)}">
            ${sign(p.unrealized_pnl)} ${q}</span>
            <span class="sub">(opened ${p.opened_at})</span>`;
       } else {
-        posEl.innerHTML = `<span class="sub">No open position.</span>`;
+        posEl.innerHTML = `<span class="sub">No open position (flat).</span>`;
       }
 
       // trades
       const tb = document.getElementById("trades");
+      const label = a => a.replace("_", " ").toUpperCase();
+      const dirClass = a => a.endsWith("long") ? "dir-long" : "dir-short";
+      const isClose = a => a.startsWith("close");
       if (s.trades && s.trades.length) {
         tb.innerHTML = s.trades.map(t => `
           <tr>
             <td>${t.timestamp.replace("T", " ")}</td>
-            <td class="side-${t.side}">${t.side.toUpperCase()}</td>
+            <td class="${dirClass(t.action)}">${label(t.action)}</td>
             <td>${fmt(t.quantity, 6)}</td>
             <td>${fmt(t.price)}</td>
             <td>${t.reason}</td>
-            <td class="${cls(t.pnl)}">${t.side === "sell" ? sign(t.pnl) : "—"}</td>
+            <td class="${cls(t.pnl)}">${isClose(t.action) ? sign(t.pnl) : "—"}</td>
           </tr>`).join("");
       } else {
         tb.innerHTML = `<tr><td colspan="6" class="sub">No trades yet.</td></tr>`;

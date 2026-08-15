@@ -3,6 +3,7 @@ import pytest
 from cryptobot.config import (
     Config,
     ExchangeConfig,
+    FuturesConfig,
     MarketConfig,
     StrategyConfig,
     TradingConfig,
@@ -54,3 +55,20 @@ def test_risk_pct_out_of_range_rejected():
     cfg = Config(risk=RiskConfig(position_size_pct=1.5))
     with pytest.raises(ValueError):
         cfg.validate()
+
+
+def test_futures_leverage_must_be_at_least_one():
+    cfg = Config(futures=FuturesConfig(enabled=True, leverage=0))
+    with pytest.raises(ValueError, match="leverage"):
+        cfg.validate()
+
+
+def test_futures_margin_mode_validated():
+    cfg = Config(futures=FuturesConfig(enabled=True, margin_mode="hyper"))
+    with pytest.raises(ValueError, match="margin_mode"):
+        cfg.validate()
+
+
+def test_futures_defaults_validate():
+    Config(futures=FuturesConfig(enabled=True, leverage=5,
+                                 margin_mode="isolated")).validate()

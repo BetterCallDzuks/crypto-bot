@@ -19,9 +19,19 @@ market:
   # needed, great for trying the bot and watching the dashboard. Switch to
   # "exchange" to use real ccxt market data from the exchange above.
   source: simulated
-  symbol: BTC/USDT      # trading pair
+  # For FUTURES on a live exchange, use the perpetual-swap symbol form with a
+  # settlement suffix, e.g. BTC/USDT:USDT. For spot, use plain BTC/USDT.
+  symbol: BTC/USDT:USDT
   timeframe: 1m         # candle size used by the strategy
   quote_currency: USDT  # currency your balance / P&L is measured in
+
+futures:
+  # Trade leveraged perpetual futures (can go long AND short). Set enabled:
+  # false to trade spot instead (long-only, no leverage).
+  enabled: true
+  leverage: 5           # e.g. 5x — a ~20% adverse move liquidates the position
+  margin_mode: isolated # "isolated" caps risk to a position's margin; "cross"
+  allow_short: true     # flip to a short position on a bearish crossover
 
 trading:
   # Master safety switch. Keep true until you have tested thoroughly.

@@ -36,11 +36,15 @@ def main() -> int:
         return 1
 
     if not config.trading.dry_run:
+        kind = (f"FUTURES {config.futures.leverage}x {config.futures.margin_mode}"
+                if config.futures.enabled else "SPOT")
         log.warning("=" * 68)
         log.warning("LIVE TRADING IS ENABLED — real orders with real funds.")
-        log.warning("Exchange: %s  sandbox=%s  symbol=%s",
-                    config.exchange.id, config.exchange.sandbox,
+        log.warning("Mode: %s   Exchange: %s  sandbox=%s  symbol=%s",
+                    kind, config.exchange.id, config.exchange.sandbox,
                     config.market.symbol)
+        if config.futures.enabled:
+            log.warning("Leverage amplifies losses; positions can be LIQUIDATED.")
         log.warning("=" * 68)
 
     try:
@@ -58,6 +62,8 @@ def main() -> int:
         starting_balance=config.trading.paper_starting_balance,
         quote_currency=config.market.quote_currency,
         dry_run=config.trading.dry_run,
+        futures=config.futures.enabled,
+        leverage=config.futures.leverage if config.futures.enabled else 1,
     )
     engine = TradingEngine(config, exchange, state)
     engine.start()

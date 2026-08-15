@@ -1,8 +1,9 @@
 """Risk management: position sizing and exit/guard rules.
 
-This module encodes the capital-preservation logic that sits between a raw
-strategy signal and an actual order. It is pure and deterministic so the rules
-can be unit tested exhaustively.
+Pure, deterministic functions that sit between a strategy signal and an order.
+All exit rules are side-aware so they work identically for long and short
+positions. Sizing accounts for leverage: the configured fraction of balance is
+posted as *margin*, and the position's notional is that margin times leverage.
 """
 
 from __future__ import annotations
@@ -18,35 +19,64 @@ class RiskLimits:
     max_daily_loss_pct: float
 
 
-def position_size(quote_balance: float, price: float,
-                  limits: RiskLimits) -> float:
-    """Return the base-asset quantity to buy for a new position.
-
-    Deploys ``position_size_pct`` of the available quote balance at ``price``.
-    Returns 0 when inputs are non-positive (nothing to trade).
-    """
-    if quote_balance <= 0 or price <= 0:
+def margin_to_use(balance: float, limits: RiskLimits) -> float:
+    """Collateral to post for a new position (a fraction of free balance)."""
+    if balance <= 0:
         return 0.0
-    quote_to_spend = quote_balance * limits.position_size_pct
-    return quote_to_spend / price
+    return balance * limits.position_size_pct
 
 
-def should_stop_loss(entry_price: float, current_price: float,
+def position_quantity(balance: float, price: float, leverage: int,
+                      limits: RiskLimits) -> float:
+    """Base-asset quantity for a new position, given leverage.
+
+    margin  = balance * position_size_pct
+    notional = margin * leverage
+    quantity = notional / price
+    """
+    if balance <= 0 or price <= 0 or leverage < 1:
+        return 0.0
+    notional = margin_to_use(balance, limits) * leverage
+    return notional / price
+
+
+def should_stop_loss(side: str, entry_price: float, current_price: float,
                      limits: RiskLimits) -> bool:
-    """True when the position has fallen to/through the stop-loss level."""
+    """True when an adverse move has reached the stop-loss threshold.
+
+    The stop is measured on price distance from entry, so with leverage it is
+    hit well before liquidation — that is the point of it.
+    """
     if entry_price <= 0:
         return False
-    stop_level = entry_price * (1 - limits.stop_loss_pct)
-    return current_price <= stop_level
+    if side == "long":
+        return current_price <= entry_price * (1 - limits.stop_loss_pct)
+    return current_price >= entry_price * (1 + limits.stop_loss_pct)
 
 
-def should_take_profit(entry_price: float, current_price: float,
+def should_take_profit(side: str, entry_price: float, current_price: float,
                        limits: RiskLimits) -> bool:
-    """True when the position has risen to/through the take-profit level."""
+    """True when a favorable move has reached the take-profit threshold."""
     if entry_price <= 0:
         return False
-    target = entry_price * (1 + limits.take_profit_pct)
-    return current_price >= target
+    if side == "long":
+        return current_price >= entry_price * (1 + limits.take_profit_pct)
+    return current_price <= entry_price * (1 - limits.take_profit_pct)
+
+
+def should_liquidate(side: str, entry_price: float, current_price: float,
+                     leverage: int) -> bool:
+    """True when price has reached the isolated-margin liquidation level.
+
+    Approximate: ignores fees and maintenance margin. A backstop only — the
+    stop-loss should normally fire long before this on any sane config.
+    """
+    if entry_price <= 0 or leverage < 1:
+        return False
+    move = entry_price / leverage
+    if side == "long":
+        return current_price <= entry_price - move
+    return current_price >= entry_price + move
 
 
 def daily_loss_limit_hit(starting_equity: float, current_equity: float,
@@ -54,7 +84,7 @@ def daily_loss_limit_hit(starting_equity: float, current_equity: float,
     """True once the day's drawdown reaches the configured maximum.
 
     While this is true the engine blocks new entries (a kill switch for the
-    trading day); existing positions may still be closed by their exits.
+    trading day); an open position may still be closed by its exits.
     """
     if starting_equity <= 0:
         return False

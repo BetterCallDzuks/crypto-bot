@@ -51,10 +51,7 @@ class SimulatedExchange:
         return self._price
 
     # -- orders (always simulated) ----------------------------------------
-    def create_market_buy(self, quantity: float, price: float) -> dict[str, Any]:
-        return {"simulated": True, "side": "buy", "amount": quantity,
-                "price": price}
-
-    def create_market_sell(self, quantity: float, price: float) -> dict[str, Any]:
-        return {"simulated": True, "side": "sell", "amount": quantity,
-                "price": price}
+    def create_order(self, side: str, quantity: float, price: float,
+                     reduce_only: bool = False) -> dict[str, Any]:
+        return {"simulated": True, "side": side, "amount": quantity,
+                "price": price, "reduceOnly": reduce_only}

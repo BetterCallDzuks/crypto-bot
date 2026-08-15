@@ -60,6 +60,16 @@ class RiskConfig:
 
 
 @dataclass
+class FuturesConfig:
+    # When enabled, the bot trades perpetual futures (leveraged, can short).
+    # When disabled, it trades spot (long-only) — equivalent to 1x, no short.
+    enabled: bool = True
+    leverage: int = 5
+    margin_mode: str = "isolated"   # "isolated" | "cross"
+    allow_short: bool = True
+
+
+@dataclass
 class WebConfig:
     host: str = "127.0.0.1"
     port: int = 5000
@@ -72,6 +82,7 @@ class Config:
     trading: TradingConfig = field(default_factory=TradingConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
+    futures: FuturesConfig = field(default_factory=FuturesConfig)
     web: WebConfig = field(default_factory=WebConfig)
 
     def validate(self) -> None:
@@ -107,6 +118,16 @@ class Config:
                 "market.source: simulated cannot be used with "
                 "trading.dry_run: false (there is no real exchange to trade on)."
             )
+
+        f = self.futures
+        if f.enabled:
+            if f.leverage < 1:
+                raise ValueError("futures.leverage must be >= 1")
+            if f.margin_mode not in ("isolated", "cross"):
+                raise ValueError(
+                    "futures.margin_mode must be 'isolated' or 'cross', got "
+                    f"'{f.margin_mode}'"
+                )
 
         # The critical live-trading guard: real orders require real keys.
         if not self.trading.dry_run and not (
@@ -157,6 +178,7 @@ def load_config(
         trading=TradingConfig(**_section(raw, "trading")),
         strategy=StrategyConfig(**_section(raw, "strategy")),
         risk=RiskConfig(**_section(raw, "risk")),
+        futures=FuturesConfig(**_section(raw, "futures")),
         web=WebConfig(**_section(raw, "web")),
     )
     cfg.validate()
