@@ -13,3 +13,4 @@ venv/
 # Runtime state / logs
 data/
 *.log
+reports/
